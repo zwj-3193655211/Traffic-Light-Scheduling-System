@@ -1,3 +1,22 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build output
+dist
+dist-ssr
+build
+.vite
+.vercel
+
+# Environment variables
+.env
+.env.*
+.env.local
+.env.*.local
+!.env.example
+
 # Logs
 logs
 *.log
@@ -7,21 +26,24 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-.env
-.env.*
-
-# Editor directories and files
+# Editor & OS
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-.vite
+
+# AI 工具本地目录（不入库）
+.claude/
+.trae/
+
+# 备份与临时产物
+*.bak
+*.tmp
+*.orig
+coverage
