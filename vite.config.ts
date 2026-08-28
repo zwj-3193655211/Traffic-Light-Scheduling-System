@@ -41,7 +41,15 @@ export default defineConfig({
             console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
           });
         },
-      }
+      },
+      // socket.io 需要 WebSocket 代理，否则前端拿不到 trafficLightUpdate 等实时推送，
+      // 红绿灯倒计时只能依赖 HTTP 拉取（刷新页面才更新）。
+      '/socket.io': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        ws: true,
+        secure: false,
+      },
     }
   }
 })

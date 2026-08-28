@@ -242,9 +242,43 @@ router.post('/ai-mode', async (req, res) => {
     try {
         const { enabled } = req.body;
         await setCache('system:ai_mode', enabled ? '1' : '0', 24 * 3600);
+        // 通知所有页面（Dashboard / TrafficControl / Demo）AI 开关状态变化
+        try {
+            const { publishMessage } = require('../config/redis');
+            await publishMessage('settings:ai_mode_changed', { enabled: !!enabled, ts: Date.now() });
+        } catch {}
         res.json({ success: true, message: 'AI模式已更新', data: !!enabled });
     } catch (error) {
         res.status(500).json({ success: false, message: '更新AI模式失败', error: error.message });
+    }
+});
+
+// 运行时热切换 AI 模型（见 docs/AI优化设计.md 5.1）：写入 Redis system:ai_model，
+// server 的 AI 循环每个 tick 读取并调用 advisor.setModelOverride，亦通过广播即时生效。
+router.get('/ai-model', async (req, res) => {
+    try {
+        const m = await getCache('system:ai_model');
+        res.json({ success: true, data: m ? String(m) : '' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: '获取AI模型失败', error: error.message });
+    }
+});
+
+router.post('/ai-model', async (req, res) => {
+    try {
+        const { model } = req.body;
+        if (!model || !String(model).trim()) {
+            return res.status(400).json({ success: false, message: 'model 不能为空' });
+        }
+        const m = String(model).trim();
+        await setCache('system:ai_model', m, 24 * 3600);
+        try {
+            const { publishMessage } = require('../config/redis');
+            await publishMessage('settings:ai_model_changed', { model: m, ts: Date.now() });
+        } catch {}
+        res.json({ success: true, message: 'AI模型已更新', data: m });
+    } catch (error) {
+        res.status(500).json({ success: false, message: '更新AI模型失败', error: error.message });
     }
 });
 

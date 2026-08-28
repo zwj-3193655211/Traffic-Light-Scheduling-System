@@ -45,7 +45,7 @@ const Settings: React.FC = () => {
 
   const fetchAiMode = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/settings/ai-mode');
+      const response = await fetch('/api/settings/ai-mode');
       const json = await response.json();
       setAiEnabled(!!json.data);
     } catch {}
@@ -54,7 +54,7 @@ const Settings: React.FC = () => {
   const updateAiMode = async (enabled: boolean) => {
     try {
       setAiLoading(true);
-      const response = await fetch('http://localhost:3001/api/settings/ai-mode', {
+      const response = await fetch('/api/settings/ai-mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled })
@@ -72,7 +72,7 @@ const Settings: React.FC = () => {
 
   const fetchSettings = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/settings');
+      const response = await fetch('/api/settings');
       const data = await response.json();
       setSettings(data?.data ?? null);
     } catch (error) {
@@ -85,7 +85,7 @@ const Settings: React.FC = () => {
 
   const fetchIntersections = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/intersections');
+      const response = await fetch('/api/intersections');
       const data = await response.json();
       const list = (data.data || []).map((i: any) => ({ id: i.id, name: i.name }));
       setIntersections(list);
@@ -99,7 +99,7 @@ const Settings: React.FC = () => {
     const loadParams = async () => {
       if (selectedIntersection == null) return;
       try {
-        const res = await fetch(`http://localhost:3001/api/settings/intersection-params/${selectedIntersection}`);
+        const res = await fetch(`/api/settings/intersection-params/${selectedIntersection}`);
         const json = await res.json();
         setParams(json.data);
       } catch {}
@@ -114,7 +114,7 @@ const Settings: React.FC = () => {
     setMessage(null);
     
     try {
-      const response = await fetch('http://localhost:3001/api/settings', {
+      const response = await fetch('/api/settings', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -142,7 +142,7 @@ const Settings: React.FC = () => {
     if (!confirm('确定要重置所有设置为默认值吗？')) return;
     
     try {
-      const response = await fetch('http://localhost:3001/api/settings/reset', {
+      const response = await fetch('/api/settings/reset', {
         method: 'POST',
       });
       
@@ -359,7 +359,7 @@ const Settings: React.FC = () => {
                       onClick={async () => {
                         if (!params) return;
                         try {
-                          const resp = await fetch(`http://localhost:3001/api/settings/intersection-params/${params.intersection_id}`, {
+                          const resp = await fetch(`/api/settings/intersection-params/${params.intersection_id}`, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(params),
@@ -462,7 +462,7 @@ const Settings: React.FC = () => {
                       onClick={async () => {
                         if (!params) return;
                         try {
-                          const resp = await fetch(`http://localhost:3001/api/settings/intersection-params/${params.intersection_id}`, {
+                          const resp = await fetch(`/api/settings/intersection-params/${params.intersection_id}`, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(params),

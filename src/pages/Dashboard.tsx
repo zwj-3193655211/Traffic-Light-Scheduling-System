@@ -7,6 +7,14 @@ import type { Direction, LightState, Phase, Step } from '../sim/core';
 import { useTrendEngine } from '../stores/trendEngine';
 import { getTrafficPeriod } from '../lib/utils';
 
+// P2.5.2 AI 健康面板的单指标卡片
+const MetricCard: React.FC<{ label: string; value: string; tone?: 'ok' | 'warn' }> = ({ label, value, tone }) => (
+  <div className="bg-gray-50 rounded-lg p-3">
+    <p className="text-xs text-gray-500">{label}</p>
+    <p className={`text-lg font-semibold ${tone === 'warn' ? 'text-amber-600' : 'text-gray-900'}`}>{value}</p>
+  </div>
+);
+
 interface TrafficLight {
   id: number;
   intersection_id: number;
@@ -61,7 +69,7 @@ const Dashboard: React.FC = () => {
   const trendStart = useTrendEngine(s => s.start)
   const trendSetIntersection = useTrendEngine(s => s.setIntersection)
   const [aiEnabled, setAiEnabled] = useState(false)
-  const [lastAiAdvice, setLastAiAdvice] = useState<{ intersectionId: number; green: number } | null>(null)
+  const [lastAiAdvice, setLastAiAdvice] = useState<{ intersectionId: number; green: number; reason?: string } | null>(null)
   const aiEnabledRef = useRef(aiEnabled)
   const [queueSnapshot, setQueueSnapshot] = useState<Record<Direction, number>>({ North: 0, South: 0, East: 0, West: 0 })
   const [queueSnapshotSplit, setQueueSnapshotSplit] = useState<{ straight: Record<Direction, number>; left: Record<Direction, number> } | null>(null)
@@ -76,23 +84,27 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     // 初始化WebSocket连接
-    const newSocket = io('http://localhost:3001');
+    const newSocket = io();
     setSocket(newSocket);
 
     // 监听红绿灯状态更新
+    // 注意：UI 的 `displayLights` 只由 worker 单向驱动；这里不直接 setDisplayLights，
+    // 否则会和 worker 的每秒 tick 产生双源更新，导致读秒跳变（同一秒被服务端值与
+    // worker 减秒同时覆盖）。
     newSocket.on('trafficLightUpdate', (data: TrafficLight[]) => {
+      if (!Array.isArray(data) || data.length === 0) return;
       const selected = selectedIntersectionIdRef.current
-      if (selected != null && Array.isArray(data) && data.length > 0 && data[0].intersection_id !== selected) {
+      if (selected != null && data[0].intersection_id !== selected) {
         return
       }
       setTrafficLights(data);
-      setDisplayLights(data);
       if (workerRef.current) {
         workerRef.current.postMessage({ type: 'INIT', lights: data });
       }
     });
 
     newSocket.on('light_status_update', (data: any) => {
+      if (!data || data.lightId == null) return;
       setTrafficLights(prev => prev.map(l => l.id === data.lightId ? {
         ...l,
         current_status: data.status,
@@ -181,7 +193,14 @@ const Dashboard: React.FC = () => {
         setLastAiAdvice({
           intersectionId: data.intersectionId,
           green: data.advice?.green,
+          reason: data.advice?.reason,
         })
+      }
+    })
+    // 监听 AI 开关跨页面同步
+    newSocket.on('aiModeChanged', (data: any) => {
+      if (data && typeof data.enabled === 'boolean') {
+        setAiEnabled(data.enabled)
       }
     })
 
@@ -207,11 +226,30 @@ const Dashboard: React.FC = () => {
     };
   }, []);
 
+  // P2.5.2 AI 健康面板：轮询 /api/ai/metrics 展示调用成功率/耗时/熔断/降本与最近建议
+  const [aiHealth, setAiHealth] = useState<any>(null);
+  const [aiLatencyHistory, setAiLatencyHistory] = useState<Array<{ t: number; ms: number }>>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await fetch('/api/ai/metrics');
+        const j = await r.json();
+        if (!alive || !j?.success || !j?.advisor) return;
+        setAiHealth(j);
+        setAiLatencyHistory(prev => [...prev, { t: prev.length, ms: j.advisor.avgLatencyMs }].slice(-20));
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 3000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+
   const fetchInitialIntersections = async () => {
     try {
       const [intersectionsRes, selectedRes] = await Promise.all([
-        fetch('http://localhost:3001/api/intersections'),
-        fetch('http://localhost:3001/api/settings/selected-intersection').catch(() => null as any),
+        fetch('/api/intersections'),
+        fetch('/api/settings/selected-intersection').catch(() => null as any),
       ]);
       const intersectionsJson = await intersectionsRes.json();
       const list: Intersection[] = intersectionsJson.data || [];
@@ -245,7 +283,7 @@ const Dashboard: React.FC = () => {
 
   const fetchAiMode = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/settings/ai-mode');
+      const response = await fetch('/api/settings/ai-mode');
       const json = await response.json();
       setAiEnabled(!!json.data);
     } catch {}
@@ -254,7 +292,7 @@ const Dashboard: React.FC = () => {
 
   const updateAiMode = async (enabled: boolean) => {
     try {
-      const response = await fetch('http://localhost:3001/api/settings/ai-mode', {
+      const response = await fetch('/api/settings/ai-mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled })
@@ -266,16 +304,23 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     if (selectedIntersectionId == null) return;
+    // 路口切换瞬间立即清空脏数据，避免显示上一个路口的灯状态/队列
+    setTrafficLights([])
+    setDisplayLights([])
+    setQueueSnapshot({ North: 0, South: 0, East: 0, West: 0 })
+    setQueueSnapshotSplit(null)
+    if (workerRef.current) {
+      workerRef.current.postMessage({ type: 'INIT', lights: [] })
+    }
     const loadByIntersection = async () => {
       try {
-        const tlRes = await fetch(`http://localhost:3001/api/traffic-lights?intersection_id=${selectedIntersectionId}`);
+        const tlRes = await fetch(`/api/traffic-lights?intersection_id=${selectedIntersectionId}`);
         const tlJson = await tlRes.json();
         setTrafficLights(tlJson.data || []);
-        setDisplayLights(tlJson.data || []);
         if (workerRef.current) {
           workerRef.current.postMessage({ type: 'INIT', lights: tlJson.data || [] });
         }
-        const flowsRes = await fetch(`http://localhost:3001/api/vehicle-flows?intersection_id=${selectedIntersectionId}&time_range=hour`);
+        const flowsRes = await fetch(`/api/vehicle-flows?intersection_id=${selectedIntersectionId}&time_range=hour`);
         const flowsJson = await flowsRes.json();
         const flows = Array.isArray(flowsJson.data) ? flowsJson.data : []
         setVehicleFlows(flows);
@@ -290,7 +335,7 @@ const Dashboard: React.FC = () => {
         }
         setQueueSnapshot(nextSnapshot)
         try {
-          const splitRes = await fetch(`http://localhost:3001/api/vehicle-flows/realtime-split?intersection_id=${selectedIntersectionId}`)
+          const splitRes = await fetch(`/api/vehicle-flows/realtime-split?intersection_id=${selectedIntersectionId}`)
           const splitJson = await splitRes.json()
           const v = splitJson?.data
           if (v && typeof v === 'object') {
@@ -303,9 +348,11 @@ const Dashboard: React.FC = () => {
             setQueueSnapshotSplit({ straight, left })
             setQueueSnapshot({ North: straight.North + left.North, South: straight.South + left.South, East: straight.East + left.East, West: straight.West + left.West })
           } else {
+            // split 缓存为空时，保持已经从 flows 加载的总数，不要清掉
             setQueueSnapshotSplit(null)
           }
         } catch {
+          // split 接口异常时同样保留总数
           setQueueSnapshotSplit(null)
         }
       } catch (e) {
@@ -313,7 +360,7 @@ const Dashboard: React.FC = () => {
       }
     }
     loadByIntersection();
-    fetch('http://localhost:3001/api/settings/selected-intersection', {
+    fetch('/api/settings/selected-intersection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ intersectionId: selectedIntersectionId })
@@ -339,9 +386,11 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  // 使用 displayLights（worker 每秒倒计时的快照）作为 UI 数据源，
+  // 让 IntersectionMonitor 中的剩余秒数能平滑读秒，而无需等待 socket 推送或手动刷新。
   const selectedLights = selectedIntersectionId == null
     ? []
-    : trafficLights.filter(l => l.intersection_id === selectedIntersectionId)
+    : displayLights.filter(l => l.intersection_id === selectedIntersectionId)
 
   const monitorLights: Record<Direction, LightState> = (['North', 'South', 'East', 'West'] as Direction[]).reduce((acc, dir) => {
     const pick = (movement: 'straight' | 'left') =>
@@ -417,6 +466,7 @@ const Dashboard: React.FC = () => {
     w.onmessage = (e: MessageEvent) => {
       setDisplayLights(e.data.lights || []);
     };
+    // 立即用最新的 trafficLights 初始化，避免 mount 时拿到的是闭包里的初始空数组。
     w.postMessage({ type: 'INIT', lights: trafficLights });
     w.postMessage({ type: 'TICK_START' });
     return () => {
@@ -426,12 +476,33 @@ const Dashboard: React.FC = () => {
     };
   }, []);
 
+  // 当 trafficLights 集合本身变化（如切换路口、socket 推送）时，
+  // 同步把最新数据喂给 worker，保证倒计时基准与服务端最新状态对齐。
+  useEffect(() => {
+    if (workerRef.current && trafficLights.length > 0) {
+      workerRef.current.postMessage({ type: 'INIT', lights: trafficLights });
+    }
+  }, [trafficLights]);
+
   // 趋势数据供折线图使用（总车流 = 四向之和）
   const baseData = trendStoreData
   const lineData = baseData.map(d => ({
     ...d,
     total: (d.North || 0) + (d.South || 0) + (d.East || 0) + (d.West || 0),
   }));
+
+  // Y 轴动态范围：根据当前数据的最大值算合适的上限，避免长期使用固定大刻度
+  // 把曲线压扁在 X 轴附近。上限留 20% 余量并向上取整到 10 的倍数。
+  const yAxisMax = (() => {
+    if (lineData.length === 0) return 100
+    const max = Math.max(...lineData.map(d => d.total || 0))
+    if (max <= 0) return 100
+    const padded = Math.ceil(max * 1.2)
+    // 向上对齐到便于阅读的刻度：< 100 取 10 倍, < 1000 取 50 倍, 否则 100 倍
+    if (padded < 100) return Math.ceil(padded / 10) * 10
+    if (padded < 1000) return Math.ceil(padded / 50) * 50
+    return Math.ceil(padded / 100) * 100
+  })();
 
   const TrendTooltip: React.FC<any> = ({ active, payload, label }) => {
     if (!active || !payload || !payload.length) return null;
@@ -490,6 +561,9 @@ const Dashboard: React.FC = () => {
           {lastAiAdvice && (
             <div className="text-xs text-gray-600">
               AI建议: G {lastAiAdvice.green}s
+              {lastAiAdvice.reason && (
+                <div className="text-[11px] text-gray-500 mt-0.5">依据: {lastAiAdvice.reason}</div>
+              )}
             </div>
           )}
         </div>
@@ -679,11 +753,104 @@ const Dashboard: React.FC = () => {
           <LineChart data={lineData}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="time" />
-            <YAxis />
+            <YAxis domain={[0, yAxisMax]} allowDataOverflow={false} />
             <Tooltip content={<TrendTooltip />} />
             <Line type="monotone" dataKey="total" stroke="#1f2937" name="总车流" dot={false} strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* P2.5.2 AI 健康面板：轮询 /api/ai/metrics 展示调用成功率/耗时/熔断/降本与最近建议 */}
+      <div className="mt-8 bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold text-gray-800">AI 调度健康面板</h2>
+          <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+            !aiHealth ? 'bg-gray-100 text-gray-500'
+            : aiHealth.advisor.calls === 0 ? 'bg-gray-100 text-gray-500'
+            : aiHealth.advisor.circuitOpenSkips > 0 ? 'bg-amber-100 text-amber-700'
+            : 'bg-green-100 text-green-700'
+          }`}>
+            {!aiHealth ? '加载中…'
+              : aiHealth.advisor.calls === 0 ? '待调用'
+              : aiHealth.advisor.circuitOpenSkips > 0 ? '熔断跳过中' : '运行正常'}
+          </span>
+        </div>
+
+        {!aiHealth ? (
+          <p className="text-sm text-gray-400">正在加载 AI 运行指标…</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              <MetricCard
+                label="调用成功率"
+                value={aiHealth.advisor.calls > 0 ? `${Math.round((aiHealth.advisor.successes / aiHealth.advisor.calls) * 100)}%` : '—'}
+                tone={aiHealth.advisor.calls > 0 && (aiHealth.advisor.successes / aiHealth.advisor.calls) < 0.8 ? 'warn' : undefined}
+              />
+              <MetricCard
+                label="平均耗时"
+                value={aiHealth.advisor.avgLatencyMs ? `${aiHealth.advisor.avgLatencyMs}ms` : '—'}
+                tone={aiHealth.advisor.avgLatencyMs > 5000 ? 'warn' : undefined}
+              />
+              <MetricCard
+                label="熔断跳过"
+                value={String(aiHealth.advisor.circuitOpenSkips)}
+                tone={aiHealth.advisor.circuitOpenSkips > 0 ? 'warn' : undefined}
+              />
+              <MetricCard
+                label="门控跳过"
+                value={String(aiHealth.runtime.gateSkips)}
+              />
+              <MetricCard
+                label="缓存命中"
+                value={String(aiHealth.runtime.cacheHits)}
+              />
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* 最近一次 AI 建议 */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <p className="text-xs uppercase tracking-wide text-gray-400 mb-2">最近一次 AI 建议</p>
+                {aiHealth.runtime.lastAdvice ? (
+                  <div className="space-y-1">
+                    <p className="text-sm text-gray-700">
+                      路口 <span className="font-semibold">{aiHealth.runtime.lastAdvice.intersectionId}</span>
+                      {' · '}建议绿灯{' '}
+                      <span className="font-semibold text-blue-600">
+                        {aiHealth.runtime.lastAdvice.green === -1 ? '保持当前' : `${aiHealth.runtime.lastAdvice.green}s`}
+                      </span>
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      {aiHealth.runtime.lastAdvice.reason || '（无说明）'}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {aiHealth.runtime.lastAdviceTs ? `更新于 ${new Date(aiHealth.runtime.lastAdviceTs).toLocaleTimeString()}` : ''}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400">暂无 AI 建议（可能 AI 未启用或尚未产生决策）</p>
+                )}
+              </div>
+
+              {/* 平均耗时趋势 */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <p className="text-xs uppercase tracking-wide text-gray-400 mb-2">平均耗时趋势（近 {aiLatencyHistory.length} 次采样）</p>
+                {aiLatencyHistory.length > 1 ? (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <LineChart data={aiLatencyHistory}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="t" hide />
+                      <YAxis domain={[0, 'auto']} width={36} fontSize={10} />
+                      <Tooltip formatter={(v: number) => [`${v}ms`, '平均耗时']} />
+                      <Line type="monotone" dataKey="ms" stroke="#2563eb" dot={false} strokeWidth={2} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-sm text-gray-400">采集中…（每 3 秒刷新）</p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

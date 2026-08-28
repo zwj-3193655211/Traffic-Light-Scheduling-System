@@ -27,7 +27,7 @@ interface TrafficLight {
   id: number;
   intersection_id: number;
   direction: string;
-  status: 'red' | 'yellow' | 'green';
+  status: number | 'red' | 'yellow' | 'green';
   duration: number;
   created_at: string;
 }
@@ -58,29 +58,20 @@ const IntersectionDetail: React.FC = () => {
     fetchTrafficLights();
     fetchVehicleFlows();
     
-    const newSocket = io('http://localhost:3001');
+    const newSocket = io();
     setSocket(newSocket);
 
-    newSocket.on('trafficLightsUpdated', (data) => {
-      if (data.intersection_id === parseInt(id!)) {
-        fetchTrafficLights();
-      }
-    });
-
-    newSocket.on('vehicleFlowUpdated', (data) => {
-      if (data.intersection_id === parseInt(id!)) {
-        fetchVehicleFlows();
-      }
+    newSocket.on('trafficLightUpdate', () => {
+      fetchTrafficLights();
     });
 
     return () => {
       newSocket.close();
     };
   }, [id]);
-
   const fetchIntersectionDetails = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/intersections/${id}`);
+      const response = await fetch(`/api/intersections/${id}`);
       const json = await response.json();
       const inter = json.data?.intersection ?? json;
       setIntersection(inter);
@@ -92,7 +83,7 @@ const IntersectionDetail: React.FC = () => {
 
   const fetchTrafficLights = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/traffic-lights/intersection/${id}`);
+      const response = await fetch(`/api/traffic-lights/intersection/${id}`);
       const data = await response.json();
       setTrafficLights(data);
     } catch (error) {
@@ -102,7 +93,7 @@ const IntersectionDetail: React.FC = () => {
 
   const fetchVehicleFlows = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/vehicle-flows/intersection/${id}`);
+      const response = await fetch(`/api/vehicle-flows/intersection/${id}`);
       const data = await response.json();
       setVehicleFlows(data);
       
@@ -149,7 +140,7 @@ const IntersectionDetail: React.FC = () => {
 
   const toggleAutoMode = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/intersections/${id}/mode`, {
+      const response = await fetch(`/api/intersections/${id}/mode`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -167,7 +158,7 @@ const IntersectionDetail: React.FC = () => {
 
   const resetIntersection = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/intersections/${id}/reset`, {
+      const response = await fetch(`/api/intersections/${id}/reset`, {
         method: 'POST',
       });
       
@@ -182,7 +173,7 @@ const IntersectionDetail: React.FC = () => {
 
   const updateIntersection = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/intersections/${id}`, {
+      const response = await fetch(`/api/intersections/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -209,7 +200,15 @@ const IntersectionDetail: React.FC = () => {
     }
   };
 
-  const getLightColor = (status: string) => {
+  const getLightColor = (status: number | string) => {
+    if (typeof status === 'number') {
+      switch (status) {
+        case 0: return 'bg-red-500';
+        case 1: return 'bg-yellow-500';
+        case 2: return 'bg-green-500';
+        default: return 'bg-gray-400';
+      }
+    }
     switch (status) {
       case 'red': return 'bg-red-500';
       case 'yellow': return 'bg-yellow-500';

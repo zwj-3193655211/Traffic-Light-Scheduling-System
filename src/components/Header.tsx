@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, User, AlertTriangle, Clock, Pencil } from 'lucide-react';
+import { toast } from 'sonner';
 import { io, Socket } from 'socket.io-client';
 
 const Header: React.FC = () => {
@@ -20,16 +21,13 @@ const Header: React.FC = () => {
     }, 1000);
 
     // 连接WebSocket
-    const newSocket = io('http://localhost:3001');
+    const newSocket = io();
     setSocket(newSocket);
 
-    newSocket.on('emergencyModeChanged', (data) => {
-      setEmergencyMode(data.enabled);
+    newSocket.on('emergencyMode', (data) => {
+      setEmergencyMode(data === 'emergency');
     });
 
-    newSocket.on('newNotification', () => {
-      setNotifications(prev => prev + 1);
-    });
 
     const savedAvatar = localStorage.getItem('user_avatar');
     if (savedAvatar) setAvatarPreview(savedAvatar);
@@ -106,7 +104,7 @@ const Header: React.FC = () => {
               onClick={async () => {
                 const token = localStorage.getItem('auth_token')
                 if (token) {
-                  await fetch('http://localhost:3001/api/auth/logout', {
+                  await fetch('/api/auth/logout', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                     body: JSON.stringify({ token })
@@ -189,8 +187,8 @@ const Header: React.FC = () => {
                   setErrorMsg('');
                   if (newPassword && newPassword.length < 6) { setErrorMsg('密码长度至少6位'); return; }
                   if (newPassword && newPassword !== confirmPassword) { setErrorMsg('两次输入的密码不一致'); return; }
-                  if (avatarPreview) localStorage.setItem('user_avatar', avatarPreview);
-                  if (newPassword) localStorage.setItem('user_password', newPassword);
+                  // avatar save placeholder
+                  toast('功能开发中');
                   setShowProfile(false);
                 }}
               >

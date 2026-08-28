@@ -34,7 +34,7 @@ const TrafficControl: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [aiEnabled, setAiEnabled] = useState(false);
-  const [lastAiAdvice, setLastAiAdvice] = useState<{ intersectionId: number; green: number } | null>(null);
+  const [lastAiAdvice, setLastAiAdvice] = useState<{ intersectionId: number; green: number; reason?: string } | null>(null);
   const aiEnabledRef = useRef(aiEnabled)
   const [queueSnapshot, setQueueSnapshot] = useState<Record<Direction, number>>({ North: 0, South: 0, East: 0, West: 0 })
   const [queueSnapshotSplit, setQueueSnapshotSplit] = useState<{ straight: Record<Direction, number>; left: Record<Direction, number> } | null>(null)
@@ -52,8 +52,8 @@ const TrafficControl: React.FC = () => {
     (async () => {
       try {
         const [intersectionsRes, selectedRes] = await Promise.all([
-          fetch('http://localhost:3001/api/intersections'),
-          fetch('http://localhost:3001/api/settings/selected-intersection').catch(() => null as any),
+          fetch('/api/intersections'),
+          fetch('/api/settings/selected-intersection').catch(() => null as any),
         ]);
         const intersectionsJson = await intersectionsRes.json();
         const list = intersectionsJson.data || [];
@@ -81,12 +81,13 @@ const TrafficControl: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const s = io('http://localhost:3001');
+    const s = io();
+    // UI 的 displayLights 只由 worker 驱动，避免双源更新导致读秒跳变
     s.on('trafficLightUpdate', (data: any) => {
+      if (!Array.isArray(data) || data.length === 0) return;
       const selected = selectedIntersectionRef.current
-      if (selected != null && Array.isArray(data) && data.length > 0 && data[0].intersection_id !== selected) return
+      if (selected != null && data[0].intersection_id !== selected) return
       setTrafficLights(data);
-      setDisplayLights(data);
       if (workerRef.current) {
         workerRef.current.postMessage({ type: 'INIT', lights: data });
       }
@@ -96,10 +97,18 @@ const TrafficControl: React.FC = () => {
         setLastAiAdvice({
           intersectionId: data.intersectionId,
           green: data.advice?.green,
+          reason: data.advice?.reason,
         });
       }
     });
+    // 监听 AI 开关跨页面同步
+    s.on('aiModeChanged', (data: any) => {
+      if (data && typeof data.enabled === 'boolean') {
+        setAiEnabled(data.enabled);
+      }
+    });
     s.on('light_status_update', (data: any) => {
+      if (!data || data.lightId == null) return;
       setTrafficLights(prev => prev.map(l => l.id === data.lightId ? {
         ...l,
         current_status: data.status,
@@ -160,16 +169,24 @@ const TrafficControl: React.FC = () => {
 
   useEffect(() => {
     if (selectedIntersection != null) {
+      // 路口切换瞬间立即清空脏数据
+      setTrafficLights([])
+      setDisplayLights([])
+      setQueueSnapshot({ North: 0, South: 0, East: 0, West: 0 })
+      setQueueSnapshotSplit(null)
+      if (workerRef.current) {
+        workerRef.current.postMessage({ type: 'INIT', lights: [] })
+      }
       fetchTrafficLights();
       fetchIntersectionMeta();
-      fetch('http://localhost:3001/api/settings/selected-intersection', {
+      fetch('/api/settings/selected-intersection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ intersectionId: selectedIntersection })
       }).catch(() => {})
       ;(async () => {
         try {
-          const splitRes = await fetch(`http://localhost:3001/api/vehicle-flows/realtime-split?intersection_id=${selectedIntersection}`)
+          const splitRes = await fetch(`/api/vehicle-flows/realtime-split?intersection_id=${selectedIntersection}`)
           const splitJson = await splitRes.json()
           const v = splitJson?.data
           if (v && typeof v === 'object') {
@@ -193,7 +210,7 @@ const TrafficControl: React.FC = () => {
 
   const fetchAiMode = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/settings/ai-mode');
+      const response = await fetch('/api/settings/ai-mode');
       const json = await response.json();
       setAiEnabled(!!json.data);
     } catch {}
@@ -202,7 +219,7 @@ const TrafficControl: React.FC = () => {
   const fetchIntersectionMeta = async () => {
     try {
       if (selectedIntersection == null) return
-      const response = await fetch(`http://localhost:3001/api/intersections/${selectedIntersection}`)
+      const response = await fetch(`/api/intersections/${selectedIntersection}`)
       const json = await response.json()
       const inter = json?.data?.intersection
       if (inter) {
@@ -221,7 +238,7 @@ const TrafficControl: React.FC = () => {
   const updateAiMode = async (enabled: boolean) => {
     try {
       setIsLoading(true);
-      const response = await fetch('http://localhost:3001/api/settings/ai-mode', {
+      const response = await fetch('/api/settings/ai-mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled })
@@ -241,10 +258,10 @@ const TrafficControl: React.FC = () => {
   const fetchTrafficLights = async () => {
     try {
       if (selectedIntersection == null) return;
-      const response = await fetch(`http://localhost:3001/api/traffic-lights?intersection_id=${selectedIntersection}`);
+      const response = await fetch(`/api/traffic-lights?intersection_id=${selectedIntersection}`);
       const json = await response.json();
       setTrafficLights(json.data || []);
-      setDisplayLights(json.data || []);
+      // 不直接 setDisplayLights，让 worker 单向驱动 UI
       if (workerRef.current) {
         workerRef.current.postMessage({ type: 'INIT', lights: json.data || [] });
       }
@@ -256,7 +273,7 @@ const TrafficControl: React.FC = () => {
   const updateTrafficLight = async (lightId: number, newState: 'red' | 'yellow' | 'green') => {
     setIsLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/traffic-lights/${lightId}/state`, {
+      const response = await fetch(`/api/traffic-lights/${lightId}/state`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -284,7 +301,7 @@ const TrafficControl: React.FC = () => {
   const toggleAutomaticMode = async (lightId: number, isAutomatic: boolean) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/traffic-lights/${lightId}/mode`, {
+      const response = await fetch(`/api/traffic-lights/${lightId}/mode`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -333,6 +350,7 @@ const TrafficControl: React.FC = () => {
     w.onmessage = (e: MessageEvent) => {
       setDisplayLights(e.data.lights || []);
     };
+    // 立即用最新的 trafficLights 初始化，避免 mount 时拿到的是闭包里的初始空数组。
     w.postMessage({ type: 'INIT', lights: trafficLights });
     w.postMessage({ type: 'TICK_START' });
     return () => {
@@ -342,7 +360,17 @@ const TrafficControl: React.FC = () => {
     };
   }, []);
 
-  const selectedLights = selectedIntersection == null ? [] : trafficLights.filter(l => l.intersection_id === selectedIntersection)
+  // 当 trafficLights 变化（路口切换、socket 推送、手动控制）时，
+  // 同步喂给 worker，保证读秒与服务端最新状态对齐。
+  useEffect(() => {
+    if (workerRef.current && trafficLights.length > 0) {
+      workerRef.current.postMessage({ type: 'INIT', lights: trafficLights });
+    }
+  }, [trafficLights]);
+
+  // 使用 displayLights（worker 每秒倒计时的快照）作为 UI 数据源，
+  // 让 IntersectionMonitor 中的剩余秒数能平滑读秒，而无需等待 socket 推送或手动刷新。
+  const selectedLights = selectedIntersection == null ? [] : displayLights.filter(l => l.intersection_id === selectedIntersection)
 
   const monitorLights: Record<Direction, LightState> = (['North', 'South', 'East', 'West'] as Direction[]).reduce((acc, dir) => {
     const pick = (movement: 'straight' | 'left') =>
@@ -453,7 +481,7 @@ const TrafficControl: React.FC = () => {
             onClick={async () => {
               if (selectedIntersection == null) return
               try {
-                await fetch(`http://localhost:3001/api/intersections/${selectedIntersection}`, {
+                await fetch(`/api/intersections/${selectedIntersection}`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ auto_mode: 1, current_phase: 1 })
@@ -475,7 +503,7 @@ const TrafficControl: React.FC = () => {
             onClick={async () => {
               if (selectedIntersection == null) return
               try {
-                await fetch(`http://localhost:3001/api/intersections/${selectedIntersection}`, {
+                await fetch(`/api/intersections/${selectedIntersection}`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ auto_mode: 1, current_phase: 2 })
@@ -497,7 +525,7 @@ const TrafficControl: React.FC = () => {
             onClick={async () => {
               if (selectedIntersection == null) return
               try {
-                await fetch(`http://localhost:3001/api/intersections/${selectedIntersection}`, {
+                await fetch(`/api/intersections/${selectedIntersection}`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ auto_mode: 1, current_phase: 3 })
@@ -519,7 +547,7 @@ const TrafficControl: React.FC = () => {
             onClick={async () => {
               if (selectedIntersection == null) return
               try {
-                await fetch(`http://localhost:3001/api/intersections/${selectedIntersection}`, {
+                await fetch(`/api/intersections/${selectedIntersection}`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ auto_mode: 1, current_phase: 4 })
@@ -550,6 +578,9 @@ const TrafficControl: React.FC = () => {
           {lastAiAdvice && (
             <div className="text-xs text-gray-600">
               AI建议: G {lastAiAdvice.green}s
+              {lastAiAdvice.reason && (
+                <div className="text-[11px] text-gray-500 mt-0.5">依据: {lastAiAdvice.reason}</div>
+              )}
             </div>
           )}
         </div>
@@ -557,7 +588,7 @@ const TrafficControl: React.FC = () => {
           <button onClick={async () => {
             if (selectedIntersection == null) return
             try {
-              await fetch(`http://localhost:3001/api/intersections/${selectedIntersection}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ auto_mode: 0 }) })
+              await fetch(`/api/intersections/${selectedIntersection}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ auto_mode: 0 }) })
               await fetchIntersectionMeta()
               setMessage('已申请人工介入')
               setTimeout(() => setMessage(''), 3000)

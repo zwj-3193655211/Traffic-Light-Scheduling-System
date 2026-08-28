@@ -32,7 +32,7 @@ const Demo: React.FC = () => {
   const selectedIdRef = useRef<number | null>(null)
   const [trafficLights, setTrafficLights] = useState<TrafficLightRow[]>([])
   const [aiEnabled, setAiEnabled] = useState(false)
-  const [lastAiAdvice, setLastAiAdvice] = useState<{ intersectionId: number; green: number } | null>(null)
+  const [lastAiAdvice, setLastAiAdvice] = useState<{ intersectionId: number; green: number; reason?: string } | null>(null)
   const aiEnabledRef = useRef(aiEnabled)
   const [queueSnapshot, setQueueSnapshot] = useState<Record<Direction, number>>({ North: 0, South: 0, East: 0, West: 0 })
   const [queueSnapshotSplit, setQueueSnapshotSplit] = useState<{ straight: Record<Direction, number>; left: Record<Direction, number> } | null>(null)
@@ -54,8 +54,8 @@ const Demo: React.FC = () => {
     ;(async () => {
       try {
         const [res, selectedRes] = await Promise.all([
-          fetch('http://localhost:3001/api/intersections'),
-          fetch('http://localhost:3001/api/settings/selected-intersection').catch(() => null as any),
+          fetch('/api/intersections'),
+          fetch('/api/settings/selected-intersection').catch(() => null as any),
         ])
         const json = await res.json()
         const list = (json.data || []).map((i: any) => ({ id: Number(i.id), name: i.name }))
@@ -80,7 +80,7 @@ const Demo: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    const s = io('http://localhost:3001')
+    const s = io()
 
     s.on('trafficLightUpdate', (data: any) => {
       const selected = selectedIdRef.current
@@ -142,7 +142,15 @@ const Demo: React.FC = () => {
         setLastAiAdvice({
           intersectionId: data.intersectionId,
           green: data.advice?.green,
+          reason: data.advice?.reason,
         })
+      }
+    })
+
+    // 监听 AI 开关跨页面同步
+    s.on('aiModeChanged', (data: any) => {
+      if (data && typeof data.enabled === 'boolean') {
+        setAiEnabled(data.enabled)
       }
     })
 
@@ -151,7 +159,7 @@ const Demo: React.FC = () => {
 
   const fetchAiMode = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/settings/ai-mode')
+      const response = await fetch('/api/settings/ai-mode')
       const json = await response.json()
       setAiEnabled(!!json.data)
     } catch {}
@@ -160,7 +168,7 @@ const Demo: React.FC = () => {
 
   const updateAiMode = async (enabled: boolean) => {
     try {
-      const response = await fetch('http://localhost:3001/api/settings/ai-mode', {
+      const response = await fetch('/api/settings/ai-mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled })
@@ -172,13 +180,17 @@ const Demo: React.FC = () => {
 
   useEffect(() => {
     if (selectedId == null) return
+    // 路口切换瞬间立即清空脏数据
+    setTrafficLights([])
+    setQueueSnapshot({ North: 0, South: 0, East: 0, West: 0 })
+    setQueueSnapshotSplit(null)
     ;(async () => {
       try {
-        const tlRes = await fetch(`http://localhost:3001/api/traffic-lights?intersection_id=${selectedId}`)
+        const tlRes = await fetch(`/api/traffic-lights?intersection_id=${selectedId}`)
         const tlJson = await tlRes.json()
         setTrafficLights(tlJson.data || [])
 
-        const flowsRes = await fetch(`http://localhost:3001/api/vehicle-flows?intersection_id=${selectedId}&time_range=hour`)
+        const flowsRes = await fetch(`/api/vehicle-flows?intersection_id=${selectedId}&time_range=hour`)
         const flowsJson = await flowsRes.json()
         const flows = Array.isArray(flowsJson.data) ? flowsJson.data : []
         const nextSnapshot: Record<Direction, number> = { North: 0, South: 0, East: 0, West: 0 }
@@ -192,7 +204,7 @@ const Demo: React.FC = () => {
         }
         setQueueSnapshot(nextSnapshot)
         try {
-          const splitRes = await fetch(`http://localhost:3001/api/vehicle-flows/realtime-split?intersection_id=${selectedId}`)
+          const splitRes = await fetch(`/api/vehicle-flows/realtime-split?intersection_id=${selectedId}`)
           const splitJson = await splitRes.json()
           const v = splitJson?.data
           if (v && typeof v === 'object') {
@@ -209,7 +221,7 @@ const Demo: React.FC = () => {
       } catch {}
     })()
 
-    fetch('http://localhost:3001/api/settings/selected-intersection', {
+    fetch('/api/settings/selected-intersection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ intersectionId: selectedId })
@@ -219,7 +231,7 @@ const Demo: React.FC = () => {
       setParamsLoaded(false)
       ;(async () => {
         try {
-          const res = await fetch(`http://localhost:3001/api/settings/intersection-params/${selectedId}`)
+          const res = await fetch(`/api/settings/intersection-params/${selectedId}`)
           const json = await res.json()
           const p = json?.data
           if (p) {
@@ -240,7 +252,7 @@ const Demo: React.FC = () => {
     if (selectedId == null) return
     if (!paramsLoaded) return
     const timer = setTimeout(() => {
-      fetch(`http://localhost:3001/api/settings/intersection-params/${selectedId}`, {
+      fetch(`/api/settings/intersection-params/${selectedId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -350,6 +362,9 @@ const Demo: React.FC = () => {
           {lastAiAdvice && (
             <div className="text-xs text-gray-600">
               AI建议: G {lastAiAdvice.green}s
+              {lastAiAdvice.reason && (
+                <div className="text-[11px] text-gray-500 mt-0.5">依据: {lastAiAdvice.reason}</div>
+              )}
             </div>
           )}
         </div>

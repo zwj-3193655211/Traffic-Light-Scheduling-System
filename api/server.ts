@@ -8,7 +8,8 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const db = require('./config/database.js');
 const redis = require('./config/redis.js');
-import { aiTrafficAdvisor, type Constraints } from './services/aiTrafficAdvisor.ts';
+import { aiTrafficAdvisor, setModelOverride, type Constraints } from './services/aiTrafficAdvisor.ts';
+import { aiRuntime } from './services/aiRuntime.ts';
 import { startVirtualFlowGenerator } from './services/virtualFlowGenerator.ts';
 import { getRuleGreenSeconds } from './services/ruleBasedTiming.ts';
 
@@ -176,7 +177,10 @@ async function startTrafficLightScheduler() {
         const cfg = paramsMap.get(intersectionId) || { window: defaultWindow, threshold: defaultThreshold, minGreen: defaultMinGreen };
         if (!forcedGreenThisTick && hasGreen && (Date.now() - schedulerStartedAt) > 5000) {
           const activeGreenMax = Math.max(0, ...activeLights.filter((l: any) => l.current_status === 2).map((l: any) => Number(l.remaining_time ?? 0)));
-          if (activeGreenMax > 10) {
+          const activeGreenDefault = Math.max(0, ...activeLights.filter((l: any) => l.current_status === 2).map((l: any) => Number(l.default_green_time ?? 0)));
+          // 仅在绿灯已运行 >= 3 秒（即剩余 <= default - 3）后才允许 cap，避免新相位刚启动就被打到 10
+          const alreadyRunSeconds = Math.max(0, activeGreenDefault - activeGreenMax);
+          if (activeGreenMax > 10 && alreadyRunSeconds >= 3) {
             const pair = activePhase === 3 || activePhase === 4 ? ['North', 'South'] : ['East', 'West'];
             const movementType = (activePhase === 1 || activePhase === 3) ? 'straight' : 'left';
             const split = await getLatestSplitQueues(intersectionId);
@@ -192,25 +196,66 @@ async function startTrafficLightScheduler() {
           }
         }
 
-        let ruleGreenSeconds: number | null = null;
-        if (!aiEnabledNow && forcedGreenThisTick) {
+        // 拥堵失衡感知：若其他相位中存在远高于当前相位的拥堵（>= 3 倍且差值绝对值大），
+        // 把当前绿灯立刻削到 minGreen，加速切换到拥堵相位。
+        let capGreenToMin = false;
+        if (!forcedGreenThisTick && hasGreen && (Date.now() - schedulerStartedAt) > 5000) {
           try {
-            const [counts]: any = await db.pool.execute(
-              `SELECT v1.direction, v1.vehicle_count as cnt 
-               FROM vehicle_flows v1
-               INNER JOIN (
-                   SELECT direction, MAX(id) as max_id
-                   FROM vehicle_flows
-                   WHERE intersection_id = ?
-                   GROUP BY direction
-               ) v2 ON v1.direction = v2.direction AND v1.id = v2.max_id
-               WHERE v1.intersection_id = ?`,
-              [intersectionId, intersectionId]
-            );
+            const split = await getLatestSplitQueues(intersectionId);
+            const totalsByDir = await getLatestQueuesByDirection(intersectionId);
+            const demandOf = (p: number): number => {
+              const pair: ('North'|'South'|'East'|'West')[] = (p === 3 || p === 4) ? ['North', 'South'] : ['East', 'West'];
+              const movement: 'straight' | 'left' = (p === 1 || p === 3) ? 'straight' : 'left';
+              if (split && typeof split === 'object') {
+                return pair.reduce((acc, d) => acc + Number(split?.[d]?.[movement] ?? 0), 0);
+              }
+              const ratio = movement === 'straight' ? 0.7 : 0.3;
+              return pair.reduce((acc, d) => acc + Math.round(Number(totalsByDir[d] ?? 0) * ratio), 0);
+            };
+            const currentDemand = demandOf(activePhase);
+            const otherPhases = phases.filter(p => p !== activePhase);
+            const otherMax = otherPhases.reduce((m, p) => Math.max(m, demandOf(p)), 0);
+            const IMBALANCE_FACTOR = 3;
+            const IMBALANCE_DELTA = 50; // 至少差 50 辆车才算严重失衡
+            if (otherMax > currentDemand * IMBALANCE_FACTOR && (otherMax - currentDemand) >= IMBALANCE_DELTA) {
+              capGreenToMin = true;
+              console.log(`[IMBALANCE] intersection=${intersectionId} current_phase=${activePhase}(q=${currentDemand}) vs max_other=${otherMax}, cap green to minGreen=${cfg.minGreen}`);
+            }
+          } catch {}
+        }
+
+        let ruleGreenSeconds: number | null = null;
+        if (forcedGreenThisTick) {
+          // 无论 AI 模式是否开启，新相位启动时都按规则根据当前队列动态决定绿灯时长。
+          // AI 模式会通过 AI advisor loop 异步覆盖这个值（如果 AI 给出更优建议），
+          // 但启动瞬间至少有一个基于队列的合理时长，避免拥堵相位只拿到 default_green_time。
+          try {
+            const split = await getLatestSplitQueues(intersectionId);
             const queuesByDirection: any = {};
-            if (Array.isArray(counts)) {
-              for (const c of counts) {
-                queuesByDirection[c.direction] = Number(c.cnt ?? 0);
+            if (split && typeof split === 'object') {
+              // 优先使用 split 数据（更准确），把同向 straight+left 加成总数
+              for (const dir of ['North','South','East','West']) {
+                const s = Number((split as any)?.[dir]?.straight ?? 0);
+                const l = Number((split as any)?.[dir]?.left ?? 0);
+                queuesByDirection[dir] = s + l;
+              }
+            } else {
+              const [counts]: any = await db.pool.execute(
+                `SELECT v1.direction, v1.vehicle_count as cnt
+                 FROM vehicle_flows v1
+                 INNER JOIN (
+                     SELECT direction, MAX(id) as max_id
+                     FROM vehicle_flows
+                     WHERE intersection_id = ?
+                     GROUP BY direction
+                 ) v2 ON v1.direction = v2.direction AND v1.id = v2.max_id
+                 WHERE v1.intersection_id = ?`,
+                [intersectionId, intersectionId]
+              );
+              if (Array.isArray(counts)) {
+                for (const c of counts) {
+                  queuesByDirection[c.direction] = Number(c.cnt ?? 0);
+                }
               }
             }
             const movementType = (activePhase === 1 || activePhase === 3) ? 'straight' : 'left';
@@ -280,6 +325,11 @@ async function startTrafficLightScheduler() {
             console.log(`[LOWFLOW10] intersection=${intersectionId} phase=${activePhase} green_remaining->10`);
           }
 
+          // 拥堵失衡截断：把绿灯打到 minGreen，让拥堵相位尽快接管
+          if (capGreenToMin && newStatus === 2 && newRemaining > cfg.minGreen) {
+            newRemaining = cfg.minGreen;
+          }
+
             if (isActive && !forcedGreenThisTick) {
               if (oldStatus === 2 && newStatus === 1) phaseToYellow = true;
               if (oldStatus === 1 && newStatus === 0) phaseToAllRed = true;
@@ -309,13 +359,64 @@ async function startTrafficLightScheduler() {
         if (phaseToAllRed) {
           console.log(`[PHASE] intersection=${intersectionId} phase=${activePhase} YELLOW -> ALL_RED`);
           if (phases.length > 1) {
-            const currentIndex = phases.indexOf(activePhase);
-            const nextPhase = phases[(currentIndex + 1) % phases.length];
+            // 智能相位选择：根据各相位对应方向的队列长度，挑选最拥堵的下一相位，
+            // 而不是简单的环形轮转。排除当前相位以保证轮换公平性。
+            // 相位约定：1=东西直行, 2=东西左转, 3=南北直行, 4=南北左转
+            const split = await getLatestSplitQueues(intersectionId);
+            const totalsByDir = await getLatestQueuesByDirection(intersectionId);
+            const phaseDemand = (p: number): number => {
+              const pair: ('North'|'South'|'East'|'West')[] = (p === 3 || p === 4) ? ['North', 'South'] : ['East', 'West'];
+              const movement: 'straight' | 'left' = (p === 1 || p === 3) ? 'straight' : 'left';
+              if (split && typeof split === 'object') {
+                return pair.reduce((acc, d) => acc + Number(split?.[d]?.[movement] ?? 0), 0);
+              }
+              // fallback：用总流量按 0.7/0.3 拆分粗估
+              const ratio = movement === 'straight' ? 0.7 : 0.3;
+              return pair.reduce((acc, d) => acc + Math.round(Number(totalsByDir[d] ?? 0) * ratio), 0);
+            };
+            const candidates = phases.filter(p => p !== activePhase);
+            // 在候选中按队列总数排序，最长者优先
+            let bestPhase = candidates[0];
+            let bestQueue = -1;
+            for (const p of candidates) {
+              const demand = phaseDemand(p);
+              if (demand > bestQueue) {
+                bestQueue = demand;
+                bestPhase = p;
+              }
+            }
+            // 公平性兜底：如果"按队列选出的相位"已经被连续跳过太多轮（>= 2 次），
+            // 则强制走环形轮转，避免某个低流量相位被永远饿死。
+            try {
+              const skipKey = `phase:skip_count:${intersectionId}`;
+              const rawSkip = await (redis.getCache ? redis.getCache(skipKey) : Promise.resolve(null));
+              const skipMap: Record<string, number> = (rawSkip && typeof rawSkip === 'object') ? rawSkip as any : {};
+              const currentIndex = phases.indexOf(activePhase);
+              const naturalNext = phases[(currentIndex + 1) % phases.length];
+              // 没被选中的相位计数 +1，被选中的清零
+              for (const p of phases) {
+                const k = String(p);
+                if (p === activePhase) continue; // 当前相位本来就刚跑完，不计
+                if (p === bestPhase) {
+                  skipMap[k] = 0;
+                } else {
+                  skipMap[k] = (skipMap[k] || 0) + 1;
+                }
+              }
+              // 如果自然轮转中的下一相位已被连续跳过 ≥ 2 次，强制走自然轮转
+              const naturalSkip = skipMap[String(naturalNext)] || 0;
+              if (naturalSkip >= 2 && naturalNext !== bestPhase) {
+                console.log(`[PHASE] intersection=${intersectionId} fairness override: ${bestPhase} -> ${naturalNext} (skipped ${naturalSkip}x)`);
+                bestPhase = naturalNext;
+                skipMap[String(naturalNext)] = 0;
+              }
+              if (redis.setCache) await redis.setCache(skipKey, skipMap, 600);
+            } catch {}
             await db.pool.execute(
               `UPDATE intersections SET current_phase = ?, updated_at = NOW() WHERE id = ?`,
-              [nextPhase, intersectionId]
+              [bestPhase, intersectionId]
             );
-            console.log(`[PHASE] intersection=${intersectionId} switch ${activePhase} -> ${nextPhase}`);
+            console.log(`[PHASE] intersection=${intersectionId} switch ${activePhase} -> ${bestPhase} (queue=${bestQueue})`);
           }
         }
       }
@@ -341,6 +442,64 @@ async function startAiAdvisorLoop() {
   // Map<intersectionId, { phase: number, count: number }>
   const aiPhaseTracker = new Map<number, { phase: number, count: number }>();
 
+  // 优化：增量门控快照、响应缓存命中计数、指标
+  const aiStatsSnapshot = new Map<number, { phase: number; totals: number[] }>();
+  // P2.5.2：AI 运行时指标统一写入共享单例 aiRuntime（server.ts 写入，/api/ai/metrics 读取），不再用局部变量。
+  const AI_GATE_DELTA = parseInt(process.env.AI_GATE_DELTA || '2');
+  // P3 异步队列化：记录飞行中的 AI 决策（按路口），防止慢模型/网络下同一路口调用堆叠
+  const aiInFlight = new Set<number>();
+
+  // P3：将 AI 建议落地到数据库并广播。缓存命中路径与异步 AI 回调复用同一逻辑，
+  // 且全程 fire-and-forget（不 await），确保主轮询循环绝不被慢 API 拖慢。
+  const applyAiAdvice = (
+    intersectionId: number,
+    advice: { green: number; reason?: string },
+    ctx: { yellowFixed: number; cycleMax: number; tracker?: { phase: number; count: number }; currentPhase: number }
+  ) => {
+    const { yellowFixed, cycleMax, tracker, currentPhase } = ctx;
+    const green = advice.green;
+    const yellow = yellowFixed;
+    const red = Math.max(0, cycleMax - green - yellow);
+    console.log(`[AI建议] 路口 ${intersectionId}：当前绿灯建议调整为 ${green}秒`);
+    // P2.5.2：写入最近一次 AI 建议，供健康面板展示
+    aiRuntime.lastAdvice = { intersectionId, green, reason: advice?.reason };
+    aiRuntime.lastAdviceTs = Date.now();
+
+    // 1. 更新当前处于绿灯状态的灯的“默认时长” (default_green_time)
+    db.pool.execute(
+      `UPDATE traffic_lights SET default_green_time = ?, default_red_time = ?, default_yellow_time = ? WHERE intersection_id = ? AND current_status = 2`,
+      [green, red, yellow, intersectionId]
+    ).then(([updateResult]: any) => {
+      console.log(`[AI应用] 路口 ${intersectionId}：已更新当前绿灯时长为 ${green}秒 (受影响行数: ${updateResult.affectedRows})`);
+    }).catch(() => {});
+
+    // 2. 非绿灯灯重置为安全默认值 30s，避免相位串味
+    db.pool.execute(
+      `UPDATE traffic_lights SET default_green_time = 30 WHERE intersection_id = ? AND current_status != 2`,
+      [intersectionId]
+    ).catch(() => {});
+
+    // 3. 立即更新当前实时倒计时
+    db.pool.execute(
+      `UPDATE traffic_lights SET remaining_time = CASE current_status WHEN 2 THEN ? WHEN 1 THEN ? WHEN 0 THEN ? END WHERE intersection_id = ?`,
+      [green, yellow, red, intersectionId]
+    ).catch(() => {});
+
+    db.pool.execute(
+      `SELECT id, intersection_id, direction, movement_type, current_status, remaining_time, default_green_time, default_red_time, default_yellow_time FROM traffic_lights WHERE intersection_id = ? ORDER BY phase_number, direction, movement_type`,
+      [intersectionId]
+    ).then(([updatedNow]: any) => {
+      io.emit('trafficTimingUpdate', { intersectionId, source: 'ai', advice: { green, reason: advice?.reason } });
+      io.emit('trafficLightUpdate', updatedNow);
+    }).catch(() => {});
+
+    // 成功应用 AI 建议后，增加轮询计数（用于“每相位最多 3 次”上限）
+    if (tracker) {
+      tracker.count++;
+      console.log(`[AI计数] 路口 ${intersectionId}：相位 ${currentPhase} 轮询次数已更新为 ${tracker.count}/3`);
+    }
+  };
+
   const schedule = () => setTimeout(() => { tick().catch(() => {}) }, AI_ADVICE_INTERVAL_MS);
   const tick = async () => {
     try {
@@ -349,6 +508,12 @@ async function startAiAdvisorLoop() {
         if (cached !== null) aiModeEnabled = String(cached) === '1';
       } catch {}
       if (!aiModeEnabled) return;
+
+      // 运行时热切换模型（见 docs/AI优化设计.md 5.1）：读取 Redis system:ai_model
+      try {
+        const m = await (redis.getCache ? redis.getCache('system:ai_model') : Promise.resolve(null));
+        setModelOverride(m ? String(m) : null);
+      } catch {}
 
       const defaultWindow = parseInt(process.env.LOW_FLOW_WINDOW_SECONDS || '10');
       const defaultMinGreen = parseInt(process.env.MIN_GREEN_FLOOR_SECONDS || '5');
@@ -562,6 +727,26 @@ async function startAiAdvisorLoop() {
             currentGreenRemaining
           };
           
+          // 增量门控：若相位未变且各方向车流变化量都小于阈值，则跳过本次 AI 调用（复用上次建议）
+          const gateTotals = ['North', 'South', 'East', 'West'].map((dir) => {
+            const d: any = (formattedStats as any)[dir] || {};
+            return Number(d.straight || 0) + Number(d.left || 0);
+          });
+          const prevSnap = aiStatsSnapshot.get(intersectionId);
+          if (prevSnap && prevSnap.phase === currentPhase) {
+            const delta =
+              Math.abs(gateTotals[0] - prevSnap.totals[0]) +
+              Math.abs(gateTotals[1] - prevSnap.totals[1]) +
+              Math.abs(gateTotals[2] - prevSnap.totals[2]) +
+              Math.abs(gateTotals[3] - prevSnap.totals[3]);
+            if (delta <= AI_GATE_DELTA) {
+              aiRuntime.gateSkips++;
+              console.log(`[AI门控] 路口 ${intersectionId}：车流变化 ${delta} <= ${AI_GATE_DELTA}，跳过 AI 调用`);
+              continue;
+            }
+          }
+          aiStatsSnapshot.set(intersectionId, { phase: currentPhase, totals: gateTotals });
+
           // 构建完整的统计数据，包括当前绿灯状态
           const stats = {
             window: defaultWindow,
@@ -588,93 +773,69 @@ async function startAiAdvisorLoop() {
             
             console.log(`  ${dir}：直行${data.straight}辆，${straightStatusText}${straightRemainingText}；左转${data.left}辆，${leftStatusText}${leftRemainingText}`);
           });
-          let advice: { green: number } | null = null
+          let advice: { green: number; reason?: string } | null = null
+          const cacheKey = `ai:advice:${intersectionId}`
+          let fromCache = false
           try {
-            advice = await aiTrafficAdvisor.getAdvice(
-              { intersectionId: String(intersectionId), stats },
-              constraints
-            );
-          } catch (e: any) {
-            const msg = String(e?.message || '')
-            // 如果 AI 显式返回“不调整” (-1)，或者调用出错
-            // 此时我们回退到 Rule-Based 计算出的 baseRuleGreen，而不是什么都不做
-            // 这样能保证即使 AI 觉得“不需要变”，我们依然有一个基于排队长度的基础动态值
-            // 除非 baseRuleGreen 与当前 remaining 差别不大，那就不改了
-            
-            if (msg.includes('AI建议不调整')) {
-               // AI 认为无需调整，但如果当前剩余时间与规则计算值偏差过大，还是应用规则值
-               if (Math.abs(currentGreenRemaining - baseRuleGreen) > 10) {
-                   console.log(`[AI建议不调整] 但规则建议差异大，采用规则值: ${baseRuleGreen}s (当前: ${currentGreenRemaining}s)`);
-                   advice = { green: baseRuleGreen };
-               } else {
-                   console.log(`[AI建议] 路口 ${intersectionId}：当前绿灯时长不需要调整 (规则值 ${baseRuleGreen}s 与当前接近)`)
-                   continue
-               }
-            } else {
-                console.warn(`[AI异常] 路口 ${intersectionId}：${msg || 'unknown'} -> 降级为规则模式: ${baseRuleGreen}s`);
-                advice = { green: baseRuleGreen };
+            const cached = await (redis.getCache ? redis.getCache(cacheKey) : Promise.resolve(null));
+            if (cached && typeof cached === 'object' && typeof (cached as any).green === 'number') {
+              advice = { green: (cached as any).green, reason: (cached as any).reason };
+              fromCache = true;
+              aiRuntime.cacheHits++;
             }
-          }
+          } catch {}
+          if (!fromCache) {
+            // P3 异步队列化：不在主循环里 await AI 调用，避免慢 API 拖慢 10s 轮询。
+            // 仅当上一轮决策仍在飞行中时跳过，防止慢模型/网络下同一路口调用堆叠。
+            if (aiInFlight.has(intersectionId)) {
+              console.log(`[AI跳过] 路口 ${intersectionId}：上一轮 AI 决策仍在处理中，本 tick 不再发起`);
+            } else {
+              aiInFlight.add(intersectionId);
+              aiTrafficAdvisor.getAdvice(
+                { intersectionId: String(intersectionId), stats },
+                constraints
+              )
+                .then((adv) => {
+                  try {
+                    if (redis.setCache) redis.setCache(cacheKey, { green: adv.green, reason: adv.reason ?? '', ts: Date.now() }, AI_ADVICE_INTERVAL_MS * 2);
+                  } catch {}
+                  try {
+                    applyAiAdvice(intersectionId, adv, { yellowFixed, cycleMax, tracker, currentPhase });
+                  } catch (err) {
+                    console.error(`[AI应用异常] 路口 ${intersectionId}:`, err);
+                  }
+                })
+                .catch((e: any) => {
+                  const msg = String(e?.message || '');
+                  if (msg.includes('AI建议不调整')) {
+                    if (Math.abs(currentGreenRemaining - baseRuleGreen) > 10) {
+                      console.log(`[AI建议不调整] 但规则建议差异大，采用规则值: ${baseRuleGreen}s (当前: ${currentGreenRemaining}s)`);
+                      applyAiAdvice(intersectionId, { green: baseRuleGreen }, { yellowFixed, cycleMax, tracker, currentPhase });
+                    } else {
+                      console.log(`[AI建议] 路口 ${intersectionId}：当前绿灯时长不需要调整 (规则值 ${baseRuleGreen}s 与当前接近)`);
+                    }
+                  } else {
+                    console.warn(`[AI异常] 路口 ${intersectionId}：${msg || 'unknown'} -> 降级为规则模式: ${baseRuleGreen}s`);
+                    applyAiAdvice(intersectionId, { green: baseRuleGreen }, { yellowFixed, cycleMax, tracker, currentPhase });
+                  }
+                })
+                .finally(() => { aiInFlight.delete(intersectionId); });
+            }
+          } // end if (!fromCache)
 
-          console.log(`[AI建议] 路口 ${intersectionId}：当前绿灯建议调整为 ${advice.green}秒`)
+          if (!advice) continue;
 
-          const green = advice.green
-          const yellow = yellowFixed
-          const red = Math.max(0, cycleMax - green - yellow)
-
-          // 1. 仅更新当前处于绿灯状态的灯的“默认时长” (default_green_time)
-          // 这样可以避免将当前相位的建议时长误应用到其他等待中的相位
-          const [updateResult] = await db.pool.execute(
-            `UPDATE traffic_lights 
-             SET default_green_time = ?, default_red_time = ?, default_yellow_time = ?
-             WHERE intersection_id = ? AND current_status = 2`,
-            [green, red, yellow, intersectionId]
-          );
-          
-          // 2. 将非绿灯状态的灯重置为安全默认值 (30秒)
-          // 确保当它们转为绿灯时，不会继承上一个相位留下的时长（例如上个相位只有15秒，而当前相位需要更多时间）
-          await db.pool.execute(
-            `UPDATE traffic_lights 
-             SET default_green_time = 30
-             WHERE intersection_id = ? AND current_status != 2`,
-            [intersectionId]
-          );
-          
-          // 记录数据库更新结果
-          console.log(`[AI应用] 路口 ${intersectionId}：已更新当前绿灯时长为 ${green}秒 (受影响行数: ${updateResult.affectedRows})`);
-          
-          // 3. 立即更新当前正在倒计时的绿灯剩余时间
-          await db.pool.execute(
-            `UPDATE traffic_lights
-             SET remaining_time = CASE current_status 
-               WHEN 2 THEN ? 
-               WHEN 1 THEN ? 
-               WHEN 0 THEN ? 
-             END
-             WHERE intersection_id = ?`,
-            [green, yellow, red, intersectionId]
-          );
-          const [updatedNow]: any = await db.pool.execute(
-            `SELECT id, intersection_id, direction, movement_type, current_status, remaining_time, default_green_time, default_red_time, default_yellow_time 
-             FROM traffic_lights WHERE intersection_id = ? ORDER BY phase_number, direction, movement_type`,
-            [intersectionId]
-          );
-          
-          // 成功应用 AI 建议后，增加轮询计数
-          if (tracker) {
-            tracker.count++;
-            console.log(`[AI计数] 路口 ${intersectionId}：相位 ${currentPhase} 轮询次数已更新为 ${tracker.count}/3`);
-          }
-
-          io.emit('trafficTimingUpdate', {
-            intersectionId,
-            source: 'ai',
-            advice: { green }
-          });
-          io.emit('trafficLightUpdate', updatedNow);
+          // P3：复用 applyAiAdvice（与异步 AI 回调同一逻辑）。缓存命中路径同步即时应用，无需等待网络。
+          applyAiAdvice(intersectionId, advice, { yellowFixed, cycleMax, tracker, currentPhase });
         } catch {
           continue
         }
+      }
+
+      aiRuntime.tickCount++
+      if (aiRuntime.tickCount % 30 === 0) {
+        const am: any = aiTrafficAdvisor.getAdvisorMetrics();
+        console.log(`[AI指标] ticks=${aiRuntime.tickCount} 门控跳过=${aiRuntime.gateSkips} 缓存命中=${aiRuntime.cacheHits} 调用=${am.calls} 成功=${am.successes} 失败=${am.failures} 熔断跳过=${am.circuitOpenSkips} 平均耗时=${am.avgLatencyMs}ms`);
       }
     } catch {} finally {
       schedule();
@@ -707,6 +868,14 @@ try {
   });
   await redis.subscribeMessage('traffic_algorithm:timing_update', (msg: any) => {
     io.emit('trafficTimingUpdate', msg);
+  });
+  // AI 开关变更广播给所有客户端，让 Dashboard / TrafficControl / Demo 三处同步
+  await redis.subscribeMessage('settings:ai_mode_changed', (msg: any) => {
+    io.emit('aiModeChanged', msg);
+  });
+  // 运行时热切换模型：收到广播即刻生效（tick 内也会再读一次 Redis，双重保险）
+  await redis.subscribeMessage('settings:ai_model_changed', (msg: any) => {
+    try { setModelOverride(msg?.model ? String(msg.model) : null); } catch {}
   });
 } catch {}
 

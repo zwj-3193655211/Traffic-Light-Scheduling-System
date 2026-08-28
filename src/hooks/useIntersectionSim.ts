@@ -359,7 +359,7 @@ export function useIntersectionSim(intersectionId: number | null, overrides?: {
     const enableBackendSync = String(((import.meta as any).env?.VITE_DEMO_SYNC_BACKEND) ?? '') === '1'
     if (!intersectionId || !enableBackendSync) return
 
-    fetch('http://localhost:3001/api/settings/selected-intersection', {
+    fetch('/api/settings/selected-intersection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ intersectionId })
@@ -376,7 +376,7 @@ export function useIntersectionSim(intersectionId: number | null, overrides?: {
         }))
       }
       
-      fetch('http://localhost:3001/api/vehicle-flows/batch', {
+      fetch('/api/vehicle-flows/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(flowPayload)
@@ -400,7 +400,7 @@ export function useIntersectionSim(intersectionId: number | null, overrides?: {
         })
       })
 
-      fetch('http://localhost:3001/api/traffic-lights/batch-update', {
+      fetch('/api/traffic-lights/batch-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

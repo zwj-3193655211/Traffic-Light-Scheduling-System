@@ -513,7 +513,7 @@ router.post('/:id/reset', async (req, res) => {
         // 重置红绿灯状态
         await pool.execute(`
             UPDATE traffic_lights 
-            SET current_status = 'red', remaining_time = default_red_time, 
+            SET current_status = 0, remaining_time = default_red_time, 
                 updated_at = NOW()
             WHERE intersection_id = ?
         `, [id]);
@@ -548,18 +548,20 @@ router.put('/:id/status', async (req, res) => {
         const { id } = req.params;
         const { status } = req.body;
         
-        if (!['active', 'inactive', 'maintenance'].includes(status)) {
+        const statusMap = { 'active': 1, 'inactive': 0, 'maintenance': 0 };
+        if (statusMap[status] === undefined) {
             return res.status(400).json({
                 success: false,
                 message: '无效的状态参数'
             });
         }
+        const numericStatus = statusMap[status];
         
         const [result] = await pool.execute(`
             UPDATE intersections 
             SET status = ?, updated_at = NOW()
             WHERE id = ?
-        `, [status, id]);
+        `, [numericStatus, id]);
         
         if (result.affectedRows === 0) {
             return res.status(404).json({

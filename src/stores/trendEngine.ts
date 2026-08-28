@@ -18,7 +18,7 @@ export const useTrendEngine = create<{
       const id = get().selectedIntersectionId
       if (!id) return
       try {
-        const r = await fetch(`http://localhost:3001/api/vehicle-flows/aggregate?intersection_id=${id}&range_seconds=1800&bucket_seconds=10`)
+        const r = await fetch(`/api/vehicle-flows/aggregate?intersection_id=${id}&range_seconds=1800&bucket_seconds=10`)
         const j = await r.json()
         const data: TrendPoint[] = Array.isArray(j.data) ? j.data : []
         set({ trendData: data })

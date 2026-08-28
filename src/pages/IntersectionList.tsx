@@ -45,13 +45,18 @@ const IntersectionList: React.FC = () => {
   useEffect(() => {
     fetchIntersections();
     const bc = new BroadcastChannel('intersections_update');
+    bc.onmessage = (event) => {
+      if (event.data?.type === 'updated') {
+        fetchIntersections();
+      }
+    };
     return () => bc.close();
   }, []);
 
   const fetchIntersections = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/intersections?include_maintenance=1&ts=${Date.now()}`);
+      const response = await fetch(`/api/intersections?include_maintenance=1&ts=${Date.now()}`);
       const json = await response.json();
       setIntersections(json.data || []);
     } catch (error) {
@@ -69,8 +74,8 @@ const IntersectionList: React.FC = () => {
     
     try {
       const url = editingIntersection 
-        ? `http://localhost:3001/api/intersections/${editingIntersection.id}`
-        : 'http://localhost:3001/api/intersections';
+        ? `/api/intersections/${editingIntersection.id}`
+        : '/api/intersections';
       const method = editingIntersection ? 'PUT' : 'POST';
 
       const body = editingIntersection
@@ -183,7 +188,7 @@ const IntersectionList: React.FC = () => {
 
     setIsLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/intersections/${id}`, {
+      const response = await fetch(`/api/intersections/${id}`, {
         method: 'DELETE',
       });
 
@@ -213,7 +218,7 @@ const IntersectionList: React.FC = () => {
 
     setIsLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/intersections/${id}`, {
+      const response = await fetch(`/api/intersections/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

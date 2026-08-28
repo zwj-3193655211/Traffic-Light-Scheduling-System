@@ -39,7 +39,7 @@ const EmergencyManagement: React.FC = () => {
 
   const fetchEmergencyVehicles = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/emergency-vehicles');
+      const response = await fetch('/api/emergency-vehicles');
       const json = await response.json();
       setEmergencyVehicles(json.data || []);
     } catch (error) {
@@ -49,7 +49,7 @@ const EmergencyManagement: React.FC = () => {
 
   const fetchTrafficLights = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/traffic-lights');
+      const response = await fetch('/api/traffic-lights');
       const json = await response.json();
       setTrafficLights(json.data || []);
     } catch (error) {
@@ -62,7 +62,7 @@ const EmergencyManagement: React.FC = () => {
     setIsLoading(true);
     
     try {
-      const response = await fetch('http://localhost:3001/api/emergency-vehicles/report', {
+      const response = await fetch('/api/emergency-vehicles/report', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -108,7 +108,7 @@ const EmergencyManagement: React.FC = () => {
   const cancelEmergency = async (vehicleId: number) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/emergency-vehicles/${vehicleId}/cancel`, {
+      const response = await fetch(`/api/emergency-vehicles/${vehicleId}/cancel`, {
         method: 'POST',
       });
 
@@ -132,7 +132,7 @@ const EmergencyManagement: React.FC = () => {
   const completeEmergency = async (vehicleId: number) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/emergency-vehicles/${vehicleId}/complete`, {
+      const response = await fetch(`/api/emergency-vehicles/${vehicleId}/complete`, {
         method: 'POST',
       });
 

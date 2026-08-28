@@ -33,23 +33,27 @@ npm install
 - `MIN_GREEN_FLOOR_SECONDS`：触发低车流时绿灯最短保底秒数
 
 ### AI 动态红绿灯
-AI 提供两种接入方式：
-- 云端 ZhipuAI（GLM-4 系列/GLM4.7 系列）：`AI_PROVIDER=zhipu`
-- 本地 LM Studio：`AI_PROVIDER=lmstudio`
+AI 统一走 **OpenAI 兼容的 Chat Completions 协议**，已弃用本地 Ollama。默认可接 **DeepSeek**，并以智谱 GLM 作为备选：
+
+- 默认 DeepSeek（推荐）：`AI_PROVIDER=deepseek`
+- 备选智谱 GLM：`AI_PROVIDER=zhipu`
 
 通用：
 - `AI_ADVICE_INTERVAL_MS`：AI 建议刷新间隔（默认 10000ms）
+- `AI_TIMEOUT_MS`：单次 AI 请求超时（默认 12000ms）
 - `MAX_GREEN_SECONDS`：绿灯上限
 - `MIN_YELLOW_SECONDS`、`MAX_YELLOW_SECONDS`：黄灯上下限
 - `CYCLE_MAX_SECONDS`：整周期上限（也会读取数据库 system_settings.max_cycle_length）
 
-ZhipuAI：
-- `GLM_API_KEY`：API Key（不要提交到仓库）
-- `GLM_MODEL`：模型名（建议 `glm-4-flash`；未配置时使用代码默认值）
+DeepSeek（默认 provider）：
+- `DEEPSEEK_API_KEY`：API Key（不要提交到仓库）
+- `DEEPSEEK_BASE_URL`：默认 `https://api.deepseek.com`
+- `DEEPSEEK_MODEL`：模型名（按平台实际填写，例如 `deepseek-v4-flash`；未配置时使用代码默认值）
 
-LM Studio：
-- `LMSTUDIO_BASE_URL`：默认 `http://127.0.0.1:1234`
-- `LMSTUDIO_MODEL`：默认 `qwen/qwen3-14b`
+智谱 GLM（备选 provider，AI_PROVIDER=zhipu 时启用）：
+- `GLM_API_KEY`：API Key（不要提交到仓库）
+- `GLM_BASE_URL`：默认 `https://open.bigmodel.cn/api/paas/v4`
+- `GLM_MODEL`：模型名（建议 `glm-4-flash`；未配置时使用代码默认值）
 
 ### 前端演示参数（Vite）
 Vite 仅识别以 `VITE_` 开头的变量：
@@ -80,7 +84,7 @@ npm run build       # 前端构建
 npm run preview     # 前端本地预览（构建产物）
 npm run lint        # 代码检查
 npm run check       # TypeScript 类型检查
-npm run ai:smoke    # AI 对话连通性（Zhipu 或 LM Studio）
+npm run ai:smoke    # AI 对话连通性（DeepSeek 或 Zhipu）
 npm run ai:advice   # AI 严格 JSON 建议连通性
 npm run ai:test     # AI 约束夹紧测试（不依赖模型）
 ```
@@ -101,7 +105,7 @@ npm run ai:test     # AI 约束夹紧测试（不依赖模型）
 - api/server.ts：本地开发入口；红绿灯调度、AI 建议循环、Socket.IO 广播
 - api/config/database.js：MySQL 连接池 + 自动建库建表 + schema 兜底
 - api/config/redis.js：Redis 客户端 + Pub/Sub + 简单缓存封装
-- api/services/aiTrafficAdvisor.ts：AI 提示词、请求适配（ZhipuAI/LM Studio）、JSON 解析与约束夹紧
+- api/services/aiTrafficAdvisor.ts：AI 提示词、请求适配（DeepSeek/Zhipu，OpenAI 兼容）、JSON 解析与约束夹紧
 - api/routes/*：路口、红绿灯、车流、紧急车辆、系统设置、配时算法等 REST API
 
 ### 前端（src/）
@@ -140,9 +144,9 @@ npm run ai:test     # AI 约束夹紧测试（不依赖模型）
 5. 通过 Socket.IO 广播 `trafficTimingUpdate` 与 `trafficLightUpdate` 给前端回显
 
 ### 使用的模型
-模型通过环境变量控制：
-- ZhipuAI：`AI_PROVIDER=zhipu` + `GLM_MODEL`（建议 `glm-4-flash`）
-- LM Studio：`AI_PROVIDER=lmstudio` + `LMSTUDIO_MODEL`
+模型通过环境变量控制（均走 OpenAI 兼容协议，逻辑在 `api/services/aiTrafficAdvisor.ts`）：
+- DeepSeek（默认）：`AI_PROVIDER=deepseek` + `DEEPSEEK_MODEL`（例如 `deepseek-v4-flash`）
+- 智谱 GLM（备选）：`AI_PROVIDER=zhipu` + `GLM_MODEL`（建议 `glm-4-flash`）
 
 ### 使用的提示词（Prompt）
 系统提示词：

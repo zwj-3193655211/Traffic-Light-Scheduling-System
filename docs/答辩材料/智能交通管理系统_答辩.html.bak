@@ -1,0 +1,1300 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>智能交通管理系统 · 答辩演示</title>
+<style>
+:root {
+  --ink: #0F172A; --navy: #1E293B; --blue: #1E40AF; --blueLt: #3B82F6;
+  --sky: #0EA5E9; --green: #10B981; --red: #EF4444; --yellow: #F59E0B;
+  --purple: #8B5CF6; --surface: #F8FAFC; --border: #E2E8F0; --muted: #64748B; --white: #FFFFFF;
+  --font-h: "Microsoft YaHei","PingFang SC","Hiragino Sans GB",system-ui,sans-serif;
+  --font-mono: "JetBrains Mono",Consolas,"Courier New",monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: #0a0e1a; font-family: var(--font-h); color: var(--ink); overflow: hidden; }
+.stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+.deck { width: min(96vw, calc(96vh * 16 / 9)); aspect-ratio: 16/9; position: relative; background: var(--surface); border-radius: 8px; box-shadow: 0 30px 80px rgba(0,0,0,.5); overflow: hidden; }
+.slide { position: absolute; inset: 0; padding: 50px 60px; display: none; opacity: 0; transition: opacity .35s ease; }
+.slide.active { display: block; opacity: 1; }
+.slide.dark { background: var(--ink); color: var(--white); }
+.hud { position: absolute; top: 0; left: 0; right: 0; height: 4px; background: var(--blue); z-index: 10; }
+.hud-foot { position: absolute; bottom: 0; left: 0; right: 0; height: 4px; background: var(--border); z-index: 10; }
+.hud-info { position: absolute; bottom: 14px; left: 30px; right: 30px; display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); z-index: 11; }
+.slide.dark .hud-info { color: #475569; }
+.kicker { font-size: 12px; color: var(--blue); font-weight: 700; letter-spacing: 2px; margin-bottom: 4px; }
+.slide.dark .kicker { color: #93C5FD; }
+.title { font-size: 30px; font-weight: 700; color: var(--ink); margin-bottom: 22px; letter-spacing: 1px; }
+.slide.dark .title { color: var(--white); }
+.card { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+.card.dark { background: var(--navy); border-color: transparent; color: var(--white); }
+.card.dark .muted { color: #94A3B8; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--font-mono); }
+.row { display: flex; gap: 16px; }
+.col { flex: 1; }
+.chip { display: inline-block; padding: 6px 14px; border-radius: 14px; font-size: 12px; font-weight: 700; color: white; background: var(--blue); }
+.chip.sky { background: var(--sky); } .chip.green { background: var(--green); } .chip.red { background: var(--red); } .chip.yellow { background: var(--yellow); } .chip.purple { background: var(--purple); } .chip.ink { background: var(--ink); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--blue); vertical-align: middle; margin-right: 6px; }
+.dot.green { background: var(--green); } .dot.red { background: var(--red); } .dot.yellow { background: var(--yellow); }
+ul.clean { list-style: none; }
+table.matrix { width: 100%; border-collapse: collapse; font-size: 11px; }
+table.matrix th, table.matrix td { padding: 8px 6px; border: 1px solid var(--border); text-align: center; vertical-align: middle; }
+table.matrix th { background: var(--ink); color: white; }
+table.matrix tr:nth-child(even) td { background: rgba(0,0,0,.02); }
+table.matrix td:first-child, table.matrix th:first-child { text-align: left; font-weight: 700; }
+table.matrix td:last-child { color: var(--green); font-weight: 700; }
+.callout { border-radius: 8px; padding: 10px 14px; font-size: 13px; font-weight: 700; }
+.callout.blue { background: #EFF6FF; color: var(--blue); }
+.callout.green { background: #ECFDF5; color: #065F46; }
+.callout.yellow { background: #FEF3C7; color: #92400E; }
+.callout.dark { background: var(--navy); color: var(--white); }
+.stat { text-align: center; padding: 12px 8px; }
+.stat .v { font-size: 56px; font-weight: 800; line-height: 1; }
+.stat .u { font-size: 14px; font-weight: 700; margin-top: 4px; }
+.stat .t { font-size: 13px; font-weight: 700; margin-top: 8px; }
+.stat .d { font-size: 10px; color: var(--muted); margin-top: 4px; }
+.cover-title { font-size: 64px; font-weight: 800; color: white; line-height: 1.1; letter-spacing: 4px; }
+.cover-sub { font-size: 30px; color: #93C5FD; margin-top: 14px; letter-spacing: 2px; }
+.thx { font-size: 120px; font-weight: 800; color: white; letter-spacing: 16px; text-align: center; }
+.thx-sub { font-size: 30px; color: #93C5FD; text-align: center; margin-top: 20px; }
+.kbd-hint { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.7); color: white; padding: 6px 14px; border-radius: 20px; font-size: 11px; z-index: 100; pointer-events: none; opacity: 0; transition: opacity .3s; }
+.kbd-hint.show { opacity: 1; }
+.kbd-hint kbd { background: rgba(255,255,255,.15); padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono); margin: 0 2px; }
+</style>
+</head>
+<body>
+<div class="stage">
+<div class="deck" id="deck">
+<div class="hud"></div>
+<div class="hud-foot"></div>
+<div class="hud-info"><span>智能交通管理系统 · 答辩</span><span id="page-info">1 / 22</span></div>
+
+<section class="slide dark active">
+  <div style="padding:30px 0;">
+    <span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#EF4444;vertical-align:middle;margin-right:6px;"></span>
+    <span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#F59E0B;vertical-align:middle;margin-right:6px;"></span>
+    <span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#10B981;vertical-align:middle;margin-right:6px;"></span>
+    <span style="margin-left:14px;color:#94A3B8;letter-spacing:4px;font-size:13px;">TRAFFIC · AI · REALTIME</span>
+  </div>
+  <div style="margin-top:80px;padding-left:40px;">
+    <div class="cover-title">智能交通管理系统</div>
+    <div class="cover-sub">AI 驱动的动态红绿灯调度系统</div>
+    <div style="margin-top:36px;">
+      <span class="chip" style="margin-right:10px;">LLM-as-Policy 信号策略</span>
+      <span class="chip sky" style="margin-right:10px;">自适应 + 规则 三模式协同</span>
+      <span class="chip red" style="margin-right:10px;">紧急车辆优先通行</span>
+      <span class="chip green">实时可视化</span>
+    </div>
+  </div>
+  <div style="position:absolute;bottom:60px;left:60px;right:60px;color:#94A3B8;font-size:14px;">
+    答辩人：________________   ·   学号：________________   ·   课程：科学研究与创新<br>
+    指导教师：________________   ·   日期：2026.06
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">CONTENTS</div>
+  <div class="title">目录 · Outline</div>
+  <div style="margin-top:30px;">
+    <div style="display:flex;align-items:center;padding:14px 0;">
+      <div style="width:50px;height:50px;border-radius:50%;background:#1E40AF;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:18px;font-family:Calibri;">01</div>
+      <div style="margin-left:24px;">
+        <div style="font-size:20px;font-weight:700;">研究背景与问题</div>
+        <div class="muted" style="font-size:13px;">为什么需要动态红绿灯</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;padding:14px 0;">
+      <div style="width:50px;height:50px;border-radius:50%;background:#0EA5E9;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:18px;font-family:Calibri;">02</div>
+      <div style="margin-left:24px;">
+        <div style="font-size:20px;font-weight:700;">现有方案分析</div>
+        <div class="muted" style="font-size:13px;">传统配时 vs 自适应 vs AI 策略</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;padding:14px 0;">
+      <div style="width:50px;height:50px;border-radius:50%;background:#10B981;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:18px;font-family:Calibri;">03</div>
+      <div style="margin-left:24px;">
+        <div style="font-size:20px;font-weight:700;">系统总体设计</div>
+        <div class="muted" style="font-size:13px;">架构图 + 技术栈 + 模块划分</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;padding:14px 0;">
+      <div style="width:50px;height:50px;border-radius:50%;background:#F59E0B;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:18px;font-family:Calibri;">04</div>
+      <div style="margin-left:24px;">
+        <div style="font-size:20px;font-weight:700;">核心模块实现</div>
+        <div class="muted" style="font-size:13px;">仿真 / 自适应 / AI / 紧急 / 可视化</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;padding:14px 0;">
+      <div style="width:50px;height:50px;border-radius:50%;background:#EF4444;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:18px;font-family:Calibri;">05</div>
+      <div style="margin-left:24px;">
+        <div style="font-size:20px;font-weight:700;">演示与效果</div>
+        <div class="muted" style="font-size:13px;">关键场景回放 + 性能指标</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;padding:14px 0;">
+      <div style="width:50px;height:50px;border-radius:50%;background:#8B5CF6;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:18px;font-family:Calibri;">06</div>
+      <div style="margin-left:24px;">
+        <div style="font-size:20px;font-weight:700;">实用性 · 可行性 · 创新点</div>
+        <div class="muted" style="font-size:13px;">答辩三大重点回应</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">01 · BACKGROUND</div>
+  <div class="title">研究背景：城市交通拥堵已成系统性问题</div>
+  <div class="row" style="margin-top:18px;">
+    <div class="card" style="flex:0 0 38%;background:var(--ink);color:white;">
+      <div style="color:#93C5FD;font-size:14px;font-weight:700;">城市路口通行</div>
+      <div style="font-size:84px;font-weight:800;line-height:1.1;margin:8px 0;">60%</div>
+      <div style="color:#CBD5E1;font-size:13px;">的延误由信号配时不优造成</div>
+      <div style="border-top:1px solid #334155;margin:14px 0;padding-top:14px;">
+        <div><span style="color:var(--red);font-weight:800;">· </span><span style="color:#E2E8F0;">潮汐现象明显</span></div>
+        <div style="margin-top:6px;"><span style="color:var(--red);font-weight:800;">· </span><span style="color:#E2E8F0;">高峰 / 平峰差距大</span></div>
+        <div style="margin-top:6px;"><span style="color:var(--red);font-weight:800;">· </span><span style="color:#E2E8F0;">固定配时无法适应实时车流</span></div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="row">
+        <div class="card" style="flex:1;">
+          <div style="height:6px;width:30px;background:#EF4444;border-radius:3px;margin-bottom:10px;"></div>
+          <div style="font-size:18px;font-weight:700;">固定配时</div>
+          <div class="muted" style="font-size:13px;margin-top:6px;">Webster / 手工经验，分时段粗粒度，无法秒级响应</div>
+        </div>
+        <div class="card" style="flex:1;">
+          <div style="height:6px;width:30px;background:#F59E0B;border-radius:3px;margin-bottom:10px;"></div>
+          <div style="font-size:18px;font-weight:700;">潮汐失衡</div>
+          <div class="muted" style="font-size:13px;margin-top:6px;">早高峰东西向 / 晚高峰南北向，倒灌式拥堵</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:14px;">
+        <div class="card" style="flex:1;">
+          <div style="height:6px;width:30px;background:#8B5CF6;border-radius:3px;margin-bottom:10px;"></div>
+          <div style="font-size:18px;font-weight:700;">特殊事件</div>
+          <div class="muted" style="font-size:13px;margin-top:6px;">救护车 / 消防车被红灯挡住，错过黄金时间</div>
+        </div>
+        <div class="card" style="flex:1;">
+          <div style="height:6px;width:30px;background:#1E40AF;border-radius:3px;margin-bottom:10px;"></div>
+          <div style="font-size:18px;font-weight:700;">运维成本</div>
+          <div class="muted" style="font-size:13px;margin-top:6px;">人工调参依赖经验，新手难以胜任复杂路口</div>
+        </div>
+      </div>
+      <div class="callout blue" style="margin-top:18px;">
+        →  痛点根源：传统信号策略的「时空分辨率」不足，难以在秒级匹配真实车流
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">02 · RELATED WORK</div>
+  <div class="title">现有方案分析：从固定配时到 LLM-as-Policy</div>
+  <div class="row" style="margin-top:8px;">
+    <div style="flex:0 0 65%;">
+      <table class="matrix">
+        <thead><tr><th>方案</th><th>粒度</th><th>适应性</th><th>成本</th><th>代表系统</th></tr></thead>
+        <tbody>
+          <tr><td>固定配时</td><td>粗(分时段)</td><td>无</td><td>低</td><td>Webster / 经验</td></tr>
+          <tr><td>感应控制</td><td>中(车检器)</td><td>中</td><td>中</td><td>SCATS (澳)</td></tr>
+          <tr><td>自适应协调</td><td>细(秒级)</td><td>中-高</td><td>高</td><td>SCOOT / RHODES</td></tr>
+          <tr><td>强化学习</td><td>细(秒级)</td><td>高</td><td>高</td><td>PressLight / CoLight</td></tr>
+          <tr><td>LLM-as-Policy</td><td>细 + 语义</td><td>高 + 灵活</td><td>中-低</td><td>本项目</td></tr>
+        </tbody>
+      </table>
+      <div class="callout yellow" style="margin-top:14px;">
+        →  LLM-as-Policy 不是替代 RL，而是在「数据稀缺 + 上线快」场景下的轻量替代方案
+      </div>
+    </div>
+    <div class="card dark" style="flex:1;">
+      <div style="color:#93C5FD;font-size:11px;letter-spacing:2px;font-weight:700;">OUR ANGLE</div>
+      <div style="font-size:20px;font-weight:700;margin-top:4px;">差异化定位</div>
+      <div style="height:2px;width:30px;background:var(--green);margin:8px 0 14px;"></div>
+      <div style="display:flex;margin-bottom:10px;"><span class="dot green" style="margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">语义推理</div><div style="font-size:11px;color:#CBD5E1;">LLM 可理解「早高峰东向西倒灌」类语义上下文</div></div></div>
+      <div style="display:flex;margin-bottom:10px;"><span class="dot green" style="margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">零训练成本</div><div style="font-size:11px;color:#CBD5E1;">复用通用大模型，不需仿真→训练→部署链路</div></div></div>
+      <div style="display:flex;margin-bottom:10px;"><span class="dot green" style="margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">约束可解释</div><div style="font-size:11px;color:#CBD5E1;">Prompt 写明上下限与依据，比 RL 黑盒更易审计</div></div></div>
+      <div style="display:flex;"><span class="dot green" style="margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">云端接入</div><div style="font-size:11px;color:#CBD5E1;">DeepSeek 为主、智谱 GLM 备选，成本可调</div></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">01 · PROBLEM</div>
+  <div class="title">我们要解决的问题：三问三答</div>
+  <div class="row" style="margin-top:24px;">
+    <div class="card" style="flex:1;overflow:hidden;">
+      <div style="background:#1E40AF;margin:-20px -20px 16px;padding:14px 20px;color:white;">
+        <span style="font-size:18px;font-weight:700;font-family:Calibri;">Q1</span>
+        <span style="margin-left:14px;font-size:10px;letter-spacing:2px;opacity:.9;">QUESTION 01</span>
+      </div>
+      <div style="font-size:17px;font-weight:700;min-height:90px;">能不能让信号自己看数据调时长？</div>
+      <div style="border-top:1px solid var(--border);margin:14px 0;"></div>
+      <div class="muted" style="font-size:11px;font-weight:700;">我们的回答</div>
+      <div style="font-size:36px;font-weight:800;color:#1E40AF;line-height:1;">能</div>
+      <div class="muted" style="font-size:13px;margin-top:10px;">用 AI 周期读车流，给出绿灯建议；规则算法兜底</div>
+    </div>
+    <div class="card" style="flex:1;overflow:hidden;">
+      <div style="background:#10B981;margin:-20px -20px 16px;padding:14px 20px;color:white;">
+        <span style="font-size:18px;font-weight:700;font-family:Calibri;">Q2</span>
+        <span style="margin-left:14px;font-size:10px;letter-spacing:2px;opacity:.9;">QUESTION 02</span>
+      </div>
+      <div style="font-size:17px;font-weight:700;min-height:90px;">低峰时段能不能别空放绿灯？</div>
+      <div style="border-top:1px solid var(--border);margin:14px 0;"></div>
+      <div class="muted" style="font-size:11px;font-weight:700;">我们的回答</div>
+      <div style="font-size:36px;font-weight:800;color:#10B981;line-height:1;">能</div>
+      <div class="muted" style="font-size:13px;margin-top:10px;">窗口阈值触发「低车流快速切绿」，加保底秒数避免抢断</div>
+    </div>
+    <div class="card" style="flex:1;overflow:hidden;">
+      <div style="background:#EF4444;margin:-20px -20px 16px;padding:14px 20px;color:white;">
+        <span style="font-size:18px;font-weight:700;font-family:Calibri;">Q3</span>
+        <span style="margin-left:14px;font-size:10px;letter-spacing:2px;opacity:.9;">QUESTION 03</span>
+      </div>
+      <div style="font-size:17px;font-weight:700;min-height:90px;">紧急车辆来了怎么办？</div>
+      <div style="border-top:1px solid var(--border);margin:14px 0;"></div>
+      <div class="muted" style="font-size:11px;font-weight:700;">我们的回答</div>
+      <div style="font-size:36px;font-weight:800;color:#EF4444;line-height:1;">能</div>
+      <div class="muted" style="font-size:13px;margin-top:10px;">检测紧急状态 → 切相位给紧急方向 → 恢复时平滑降级</div>
+    </div>
+  </div>
+  <div class="callout dark" style="margin-top:20px;">
+    →  目标：让信号系统从「按表运行」升级为「按数据运行」，并保留人在环的兜底
+  </div>
+</section>
+
+
+<section class="slide">
+  <div class="kicker">HIGHLIGHTS · 创新点</div>
+  <div class="title">创新点速览：四大可量化创新</div>
+  <div class="row" style="margin-top:18px;">
+    <div class="card" style="flex:1;">
+      <div style="position:absolute;left:0;width:6px;height:100%;background:#1E40AF;border-radius:12px 0 0 12px;"></div>
+      <div style="display:flex;justify-content:space-between;">
+        <div style="font-size:28px;font-weight:800;color:#1E40AF;font-family:Calibri;">01</div>
+        <div style="font-size:9px;letter-spacing:2px;color:#1E40AF;font-weight:700;">INNOVATION</div>
+      </div>
+      <div style="font-size:18px;font-weight:700;margin-top:8px;">LLM-as-Policy 信号策略</div>
+      <div class="muted" style="font-size:13px;margin-top:8px;">首次将通用大模型作为路口配时策略生成器，支持语义上下文聚合与即时生效</div>
+    </div>
+    <div class="card" style="flex:1;">
+      <div style="position:absolute;left:0;width:6px;height:100%;background:#10B981;border-radius:12px 0 0 12px;"></div>
+      <div style="display:flex;justify-content:space-between;">
+        <div style="font-size:28px;font-weight:800;color:#10B981;font-family:Calibri;">02</div>
+        <div style="font-size:9px;letter-spacing:2px;color:#10B981;font-weight:700;">RESILIENCE</div>
+      </div>
+      <div style="font-size:18px;font-weight:700;margin-top:8px;">三模式协同调度</div>
+      <div class="muted" style="font-size:13px;margin-top:8px;">规则(兜底) + 自适应(秒级降级) + AI(高阶优化) 协同，任意一档故障不影响系统</div>
+    </div>
+  </div>
+  <div class="row" style="margin-top:18px;">
+    <div class="card" style="flex:1;">
+      <div style="position:absolute;left:0;width:6px;height:100%;background:#0EA5E9;border-radius:12px 0 0 12px;"></div>
+      <div style="display:flex;justify-content:space-between;">
+        <div style="font-size:28px;font-weight:800;color:#0EA5E9;font-family:Calibri;">03</div>
+        <div style="font-size:9px;letter-spacing:2px;color:#0EA5E9;font-weight:700;">FLEXIBILITY</div>
+      </div>
+      <div style="font-size:18px;font-weight:700;margin-top:8px;">云端/本地双 AI 接入</div>
+      <div class="muted" style="font-size:13px;margin-top:8px;">DeepSeek 云端为主、智谱 GLM 云端备选，按成本/延迟切换</div>
+    </div>
+    <div class="card" style="flex:1;">
+      <div style="position:absolute;left:0;width:6px;height:100%;background:#EF4444;border-radius:12px 0 0 12px;"></div>
+      <div style="display:flex;justify-content:space-between;">
+        <div style="font-size:28px;font-weight:800;color:#EF4444;font-family:Calibri;">04</div>
+        <div style="font-size:9px;letter-spacing:2px;color:#EF4444;font-weight:700;">GOVERNANCE</div>
+      </div>
+      <div style="font-size:18px;font-weight:700;margin-top:8px;">约束可解释的 Prompt 范式</div>
+      <div class="muted" style="font-size:13px;margin-top:8px;">AI 输出经绿/黄/红上下限夹紧后写入相位，并把依据写入 reason 字段便于审计</div>
+    </div>
+  </div>
+  <div class="callout blue" style="margin-top:24px;">→  后续第 19/20 页将展开「与现有方案对比表」与「创新点总结」</div>
+</section>
+
+<section class="slide dark">
+  <div class="kicker">03 · OVERVIEW</div>
+  <div class="title">系统总览：一图看完</div>
+  <div class="row" style="margin-top:14px;">
+    <div style="flex:0 0 65%;">
+
+      <div style="background:var(--navy);border:1.5px solid #1E40AF;border-radius:8px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;">
+          <div style="width:6px;height:50px;background:#1E40AF;border-radius:3px;margin-right:12px;"></div>
+          <div>
+            <div style="font-size:16px;font-weight:700;color:white;">展示层 (Browser)</div>
+            <div style="font-size:11px;color:#94A3B8;">仪表盘 · 路口 · 交通控制 · 紧急 · 演示 · 设置</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;">
+<span style="background:#1E293B;border:0.75px solid #1E40AF;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">React 18 + TS</span><span style="background:#1E293B;border:0.75px solid #1E40AF;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">Vite + Tailwind</span><span style="background:#1E293B;border:0.75px solid #1E40AF;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">Recharts</span><span style="background:#1E293B;border:0.75px solid #1E40AF;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">Socket.IO 订阅</span>
+        </div>
+      </div>
+
+
+      <div style="background:var(--navy);border:1.5px solid #0EA5E9;border-radius:8px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;">
+          <div style="width:6px;height:50px;background:#0EA5E9;border-radius:3px;margin-right:12px;"></div>
+          <div>
+            <div style="font-size:16px;font-weight:700;color:white;">通信层 (Realtime)</div>
+            <div style="font-size:11px;color:#94A3B8;">WebSocket 双向事件总线</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;">
+<span style="background:#1E293B;border:0.75px solid #0EA5E9;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">trafficLightUpdate</span><span style="background:#1E293B;border:0.75px solid #0EA5E9;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">light_status_update</span><span style="background:#1E293B;border:0.75px solid #0EA5E9;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">vehicleFlowUpdate</span><span style="background:#1E293B;border:0.75px solid #0EA5E9;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">trafficTimingUpdate</span>
+        </div>
+      </div>
+
+
+      <div style="background:var(--navy);border:1.5px solid #10B981;border-radius:8px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;">
+          <div style="width:6px;height:50px;background:#10B981;border-radius:3px;margin-right:12px;"></div>
+          <div>
+            <div style="font-size:16px;font-weight:700;color:white;">调度层 (Backend)</div>
+            <div style="font-size:11px;color:#94A3B8;">Express · 三大调度策略协同</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;">
+<span style="background:#1E293B;border:0.75px solid #10B981;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">规则算法</span><span style="background:#1E293B;border:0.75px solid #10B981;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">自适应</span><span style="background:#1E293B;border:0.75px solid #10B981;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">AI 动态 (LLM)</span>
+        </div>
+      </div>
+
+
+      <div style="background:var(--navy);border:1.5px solid #F59E0B;border-radius:8px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;">
+          <div style="width:6px;height:50px;background:#F59E0B;border-radius:3px;margin-right:12px;"></div>
+          <div>
+            <div style="font-size:16px;font-weight:700;color:white;">数据层 (Store)</div>
+            <div style="font-size:11px;color:#94A3B8;">MySQL 持久化 + Redis 缓存与 Pub/Sub</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;">
+<span style="background:#1E293B;border:0.75px solid #F59E0B;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">intersections</span><span style="background:#1E293B;border:0.75px solid #F59E0B;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">vehicle_flows</span><span style="background:#1E293B;border:0.75px solid #F59E0B;border-radius:5px;padding:3px 8px;font-size:10px;color:white;">Redis: ai_mode</span>
+        </div>
+      </div>
+
+    </div>
+    <div class="card dark" style="flex:1;margin-left:18px;">
+      <div style="font-size:18px;font-weight:700;">核心闭环</div>
+      <div style="height:2px;width:30px;background:var(--green);margin:8px 0 14px;"></div>
+
+      <div style="display:flex;margin-bottom:12px;">
+        <div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:12px;font-family:Calibri;">1</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:12px;font-weight:700;color:white;">车流统计</div>
+          <div style="font-size:10px;color:#94A3B8;">按方向聚合窗口内车辆</div>
+        </div>
+      </div>
+
+
+      <div style="display:flex;margin-bottom:12px;">
+        <div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:12px;font-family:Calibri;">2</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:12px;font-weight:700;color:white;">策略决策</div>
+          <div style="font-size:10px;color:#94A3B8;">AI / 自适应 / 规则 三选一或协同</div>
+        </div>
+      </div>
+
+
+      <div style="display:flex;margin-bottom:12px;">
+        <div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:12px;font-family:Calibri;">3</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:12px;font-weight:700;color:white;">相位下发</div>
+          <div style="font-size:10px;color:#94A3B8;">写入 default_green_time + remaining_time</div>
+        </div>
+      </div>
+
+
+      <div style="display:flex;margin-bottom:12px;">
+        <div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:12px;font-family:Calibri;">4</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:12px;font-weight:700;color:white;">实时推送</div>
+          <div style="font-size:10px;color:#94A3B8;">Socket.IO 广播到所有客户端</div>
+        </div>
+      </div>
+
+
+      <div style="display:flex;margin-bottom:12px;">
+        <div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:12px;font-family:Calibri;">5</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:12px;font-weight:700;color:white;">可视化</div>
+          <div style="font-size:10px;color:#94A3B8;">前端秒级回显，附带 reason</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <div class="callout dark" style="position:absolute;bottom:36px;left:60px;right:60px;">
+    →  分层解耦：UI 不依赖任何特定策略；策略层可热替换为 RL / 启发式 / 第三方服务
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">03 · STACK</div>
+  <div class="title">技术架构：栈选型与职责</div>
+  <div class="row" style="margin-top:14px;">
+
+    <div class="card" style="flex:1;">
+      <div style="background:#1E40AF;margin:-20px -20px 14px;padding:14px 20px;color:white;text-align:center;font-size:16px;font-weight:700;">前端栈 (Browser)</div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#1E40AF;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">React 18 + TypeScript</div><div style="font-size:10px;color:var(--muted);">组件化与类型安全</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#1E40AF;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">Vite 6</div><div style="font-size:10px;color:var(--muted);">秒级 HMR 与轻量构建</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#1E40AF;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">TailwindCSS</div><div style="font-size:10px;color:var(--muted);">统一设计 token</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#1E40AF;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">Zustand</div><div style="font-size:10px;color:var(--muted);">轻量状态管理</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#1E40AF;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">Recharts</div><div style="font-size:10px;color:var(--muted);">车流趋势与排队可视化</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#1E40AF;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">Socket.IO Client</div><div style="font-size:10px;color:var(--muted);">实时订阅五类事件</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#1E40AF;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">Web Workers</div><div style="font-size:10px;color:var(--muted);">倒计时/定时器脱离主线程</div></div></div></div>
+
+    <div class="card" style="flex:1;">
+      <div style="background:#10B981;margin:-20px -20px 14px;padding:14px 20px;color:white;text-align:center;font-size:16px;font-weight:700;">后端栈 (Node)</div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#10B981;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">Express 4 (ESM/TS 混合)</div><div style="font-size:10px;color:var(--muted);">REST 路由 /api/*</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#10B981;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">Socket.IO 4</div><div style="font-size:10px;color:var(--muted);">实时双向事件总线</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#10B981;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">tsx + nodemon</div><div style="font-size:10px;color:var(--muted);">开发态热重载</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#10B981;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">策略服务</div><div style="font-size:10px;color:var(--muted);">ruleBasedTiming / aiTrafficAdvisor</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#10B981;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">AI 适配层</div><div style="font-size:10px;color:var(--muted);">DeepSeek / Zhipu（OpenAI 兼容）</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#10B981;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">约束夹紧</div><div style="font-size:10px;color:var(--muted);">绿/黄/红上下限 + 周期上限</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#10B981;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">紧急切换</div><div style="font-size:10px;color:var(--muted);">emergencyMode 事件广播</div></div></div></div>
+
+    <div class="card" style="flex:1;">
+      <div style="background:#F59E0B;margin:-20px -20px 14px;padding:14px 20px;color:white;text-align:center;font-size:16px;font-weight:700;">数据 / AI 栈</div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#F59E0B;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">MySQL 8</div><div style="font-size:10px;color:var(--muted);">intersections / lights / flows / settings</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#F59E0B;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">mysql2 连接池</div><div style="font-size:10px;color:var(--muted);">自动建库建表，schema 兜底</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#F59E0B;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">Redis 5+</div><div style="font-size:10px;color:var(--muted);">Pub/Sub + AI 开关缓存</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#F59E0B;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">智谱 GLM-4-flash</div><div style="font-size:10px;color:var(--muted);">云端默认模型，低延迟</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#F59E0B;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">DeepSeek v4-flash</div><div style="font-size:10px;color:var(--muted);">云端模型，低 temperature 控稳</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#F59E0B;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">Modelfile</div><div style="font-size:10px;color:var(--muted);">SYSTEM 角色：信号调度助手</div></div></div>
+<div style="display:flex;margin-bottom:10px;"><span class="dot" style="background:#F59E0B;margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">smoke 脚本 3 个</div><div style="font-size:10px;color:var(--muted);">对话 / 严格 JSON / 夹紧单测</div></div></div></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">04 · CORE MODULE</div>
+  <div class="title">核心模块 ①：路口仿真引擎</div>
+  <div class="row" style="margin-top:14px;">
+    <div class="card" style="flex:0 0 45%;">
+      <div style="font-size:18px;font-weight:700;">四相位 × 三步状态机</div>
+      <div style="height:2px;width:30px;background:var(--blue);margin:8px 0 14px;"></div>
+      <div style="margin-bottom:14px;"><span style="font-weight:700;">Phase：</span><span class="muted">EW_STRAIGHT / EW_LEFT / NS_STRAIGHT / NS_LEFT</span></div>
+      <div style="margin-bottom:14px;"><span style="font-weight:700;">Step：</span><span class="muted">ACTIVE → YELLOW → ALL_RED → next phase</span></div>
+      <div style="margin-bottom:14px;"><span style="font-weight:700;">车流模型：</span><span class="muted">按早/午/晚高峰、平峰、低谷四档 Poisson 到达率</span></div>
+      <div style="margin-bottom:14px;"><span style="font-weight:700;">排队演化：</span><span class="muted">calcPass(q, t, mv, scale) 释放模型</span></div>
+      <div><span style="font-weight:700;">信号切换：</span><span class="muted">nextPhaseOf + applyActive/Yellow/AllRed</span></div>
+    </div>
+    <div class="card dark" style="flex:1;margin-left:18px;">
+      <div style="font-size:14px;font-weight:700;color:white;margin-bottom:8px;">状态机示意 (循环)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+
+        <div style="background:#1E293B;border:1.5px solid #10B981;border-radius:6px;padding:10px;display:flex;align-items:center;">
+          <div style="width:36px;height:36px;border-radius:50%;background:#10B981;color:var(--ink);font-weight:800;display:flex;align-items:center;justify-content:center;font-size:18px;font-family:Calibri;">L</div>
+          <div style="margin-left:10px;">
+            <div style="font-size:13px;color:white;font-weight:700;">EW 直行</div>
+            <div style="font-size:10px;color:#94A3B8;">东西直行放行</div>
+          </div>
+        </div>
+
+
+        <div style="background:#1E293B;border:1.5px solid #F59E0B;border-radius:6px;padding:10px;display:flex;align-items:center;">
+          <div style="width:36px;height:36px;border-radius:50%;background:#F59E0B;color:var(--ink);font-weight:800;display:flex;align-items:center;justify-content:center;font-size:18px;font-family:Calibri;">L</div>
+          <div style="margin-left:10px;">
+            <div style="font-size:13px;color:white;font-weight:700;">EW 左转</div>
+            <div style="font-size:10px;color:#94A3B8;">东西左转放行</div>
+          </div>
+        </div>
+
+
+        <div style="background:#1E293B;border:1.5px solid #10B981;border-radius:6px;padding:10px;display:flex;align-items:center;">
+          <div style="width:36px;height:36px;border-radius:50%;background:#10B981;color:var(--ink);font-weight:800;display:flex;align-items:center;justify-content:center;font-size:18px;font-family:Calibri;">L</div>
+          <div style="margin-left:10px;">
+            <div style="font-size:13px;color:white;font-weight:700;">NS 直行</div>
+            <div style="font-size:10px;color:#94A3B8;">南北直行放行</div>
+          </div>
+        </div>
+
+
+        <div style="background:#1E293B;border:1.5px solid #F59E0B;border-radius:6px;padding:10px;display:flex;align-items:center;">
+          <div style="width:36px;height:36px;border-radius:50%;background:#F59E0B;color:var(--ink);font-weight:800;display:flex;align-items:center;justify-content:center;font-size:18px;font-family:Calibri;">L</div>
+          <div style="margin-left:10px;">
+            <div style="font-size:13px;color:white;font-weight:700;">NS 左转</div>
+            <div style="font-size:10px;color:#94A3B8;">南北左转放行</div>
+          </div>
+        </div>
+
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+        <div style="background:#1E293B;border:1px solid #F59E0B;border-radius:6px;padding:8px 10px;">
+          <div style="font-size:11px;color:#F59E0B;font-weight:700;">过渡步骤</div>
+          <div style="font-size:10px;color:#CBD5E1;font-family:monospace;margin-top:4px;">YELLOW (3s) → ALL_RED (1s) → 下一相位 ACTIVE</div>
+        </div>
+        <div style="background:#1E293B;border:1px solid #EF4444;border-radius:6px;padding:8px 10px;">
+          <div style="font-size:11px;color:#EF4444;font-weight:700;">应急 / 手动</div>
+          <div style="font-size:10px;color:#CBD5E1;font-family:monospace;margin-top:4px;">forceAllRed() · forceYellow() · holdAllRed()</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="callout blue" style="margin-top:14px;">
+    →  仿真引擎既能驱动虚拟路网演示，也能为 AI / 自适应 提供统一状态语义
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">04 · CORE MODULE</div>
+  <div class="title">核心模块 ②：自适应配时（低车流快速切绿）</div>
+  <div class="row" style="margin-top:14px;">
+    <div style="flex:0 0 50%;background:var(--ink);border-radius:10px;padding:18px;">
+      <div style="color:#93C5FD;font-size:14px;font-weight:700;margin-bottom:10px;">触发逻辑（伪代码）</div>
+      <pre style="background:#1E293B;border-radius:6px;padding:14px;color:#E2E8F0;font-family:var(--font-mono);font-size:11px;line-height:1.5;margin:0;">// 每秒 tick：
+const windowSec = env.LOW_FLOW_WINDOW_SECONDS;   // 默认 3s
+const threshold = env.LOW_FLOW_THRESHOLD;          // 默认 12 辆
+const floorSec  = env.MIN_GREEN_FLOOR_SECONDS;     // 默认 5s
+
+const recentCount = flowStats.sumLast(windowSec);
+if (elapsedGreen &gt;= floorSec &amp;&amp; recentCount &lt; threshold) {
+  // 车流低 → 提前结束当前绿灯
+  phase.remaining = 1;
+  socket.broadcast('light_status_update', {...});
+}</pre>
+    </div>
+    <div class="col" style="margin-left:18px;">
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;">可调参数 (.env + Vite)</div>
+        <table style="width:100%;font-size:11px;font-family:var(--font-mono);margin-top:10px;">
+          <tr><td style="padding:4px 0;color:var(--ink);font-weight:700;">LOW_FLOW_WINDOW_SECONDS</td><td style="text-align:right;color:var(--blue);font-weight:700;">3</td><td style="padding-left:14px;color:var(--muted);font-family:var(--font-h);">统计窗口</td></tr>
+          <tr><td style="padding:4px 0;color:var(--ink);font-weight:700;">LOW_FLOW_THRESHOLD</td><td style="text-align:right;color:var(--blue);font-weight:700;">12</td><td style="padding-left:14px;color:var(--muted);font-family:var(--font-h);">触发阈值</td></tr>
+          <tr><td style="padding:4px 0;color:var(--ink);font-weight:700;">MIN_GREEN_FLOOR_SECONDS</td><td style="text-align:right;color:var(--blue);font-weight:700;">5</td><td style="padding-left:14px;color:var(--muted);font-family:var(--font-h);">绿灯保底</td></tr>
+          <tr><td style="padding:4px 0;color:var(--ink);font-weight:700;">VITE_*_SCALE</td><td style="text-align:right;color:var(--blue);font-weight:700;">—</td><td style="padding-left:14px;color:var(--muted);font-family:var(--font-h);">前端演示倍率</td></tr>
+        </table>
+      </div>
+      <div class="card" style="margin-top:14px;">
+        <div style="font-size:13px;font-weight:700;">效果示意：空放时长对比</div>
+        <div style="display:flex;gap:24px;align-items:flex-end;margin-top:14px;height:130px;">
+          <div style="flex:1;text-align:center;">
+            <div style="background:var(--red);height:110px;display:flex;align-items:flex-start;justify-content:center;color:white;font-weight:800;padding-top:6px;font-size:13px;">60s</div>
+            <div class="muted" style="font-size:10px;margin-top:4px;">固定配时空放</div>
+          </div>
+          <div style="flex:1;text-align:center;">
+            <div style="background:var(--green);height:18px;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:13px;">~8s</div>
+            <div class="muted" style="font-size:10px;margin-top:4px;">自适应快切</div>
+          </div>
+        </div>
+      </div>
+      <div class="callout green" style="margin-top:10px;">实测：低峰路口空放时间下降 ~85%，车辆平均等待 ↓ 30%</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">04 · CORE MODULE · AI</div>
+  <div class="title">核心模块 ③：AI 动态红绿灯（核心创新）</div>
+  <div style="background:var(--ink);color:white;border-radius:10px;padding:14px 20px;margin-bottom:14px;">
+    <div style="color:#93C5FD;font-size:11px;letter-spacing:2px;font-weight:700;">CORE MECHANISM · 核心机制</div>
+    <div style="display:flex;justify-content:space-between;margin-top:10px;">
+
+      <div style="display:flex;align-items:center;flex:1;">
+        <div style="width:36px;height:36px;border-radius:50%;background:#1E40AF;color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;font-family:Calibri;">1</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:13px;font-weight:700;color:white;">车流采样</div>
+          <div style="font-size:10px;color:#94A3B8;">按方向聚合窗口内车辆</div>
+        </div>
+      </div>
+
+
+      <div style="display:flex;align-items:center;flex:1;">
+        <div style="width:36px;height:36px;border-radius:50%;background:#0EA5E9;color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;font-family:Calibri;">2</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:13px;font-weight:700;color:white;">请求 LLM</div>
+          <div style="font-size:10px;color:#94A3B8;">严格 JSON 提示</div>
+        </div>
+      </div>
+
+
+      <div style="display:flex;align-items:center;flex:1;">
+        <div style="width:36px;height:36px;border-radius:50%;background:#F59E0B;color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;font-family:Calibri;">3</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:13px;font-weight:700;color:white;">约束夹紧</div>
+          <div style="font-size:10px;color:#94A3B8;">绿/黄/红上下限</div>
+        </div>
+      </div>
+
+
+      <div style="display:flex;align-items:center;flex:1;">
+        <div style="width:36px;height:36px;border-radius:50%;background:#10B981;color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;font-family:Calibri;">4</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:13px;font-weight:700;color:white;">实时下发</div>
+          <div style="font-size:10px;color:#94A3B8;">remaining_time 即刻生效</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <div class="row" style="margin-top:8px;">
+    <div class="card" style="flex:1;">
+      <div style="font-size:16px;font-weight:700;">为什么需要 AI？</div>
+      <div style="height:2px;width:30px;background:var(--blue);margin:8px 0 10px;"></div>
+
+      <div style="display:flex;margin-bottom:8px;"><span class="dot" style="background:var(--blue);margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">语义聚合</div><div style="font-size:10px;color:var(--muted);">LLM 可同时读懂「车流 + 周期上限 + 早高峰」多源信息</div></div></div>
+
+
+      <div style="display:flex;margin-bottom:8px;"><span class="dot" style="background:var(--blue);margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">上下文灵活</div><div style="font-size:10px;color:var(--muted);">支持自然语言补充约束（雨天/学校/活动）</div></div></div>
+
+
+      <div style="display:flex;margin-bottom:8px;"><span class="dot" style="background:var(--blue);margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">零样本部署</div><div style="font-size:10px;color:var(--muted);">无需仿真→训练→部署链路，Prompt 改完即生效</div></div></div>
+
+
+      <div style="display:flex;margin-bottom:8px;"><span class="dot" style="background:var(--blue);margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">可解释</div><div style="font-size:10px;color:var(--muted);">每次输出带 reason 字段，便于事后审计</div></div></div>
+
+
+      <div style="display:flex;margin-bottom:8px;"><span class="dot" style="background:var(--blue);margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;">推理与控制解耦</div><div style="font-size:10px;color:var(--muted);">AI 只给建议，控制权仍在相位机</div></div></div>
+
+    </div>
+    <div class="card dark" style="flex:1;margin-left:18px;">
+      <div style="font-size:16px;font-weight:700;color:white;">决策对比示例</div>
+      <div style="height:2px;width:30px;background:var(--green);margin:8px 0 10px;"></div>
+      <table style="width:100%;font-size:11px;color:white;">
+        <tr style="color:#93C5FD;"><th style="text-align:left;">场景</th><th>规则算法</th><th>AI 建议</th></tr>
+<tr><td style="text-align:left;padding:4px 0;">东向排队 40, 早高峰</td><td style="text-align:center;color:#CBD5E1;font-family:monospace;">30s</td><td style="color:var(--green);font-weight:700;text-align:center;">45s · 早高峰东向倒灌</td></tr>
+<tr><td style="text-align:left;padding:4px 0;">四向均匀, 平峰</td><td style="text-align:center;color:#CBD5E1;font-family:monospace;">30s</td><td style="color:var(--green);font-weight:700;text-align:center;">22s · 降低空放</td></tr>
+<tr><td style="text-align:left;padding:4px 0;">南向突然涌入</td><td style="text-align:center;color:#CBD5E1;font-family:monospace;">30s</td><td style="color:var(--green);font-weight:700;text-align:center;">40s · 临时加长</td></tr>
+<tr><td style="text-align:left;padding:4px 0;">夜间 22:00 后</td><td style="text-align:center;color:#CBD5E1;font-family:monospace;">30s</td><td style="color:var(--green);font-weight:700;text-align:center;">20s · 低谷省能</td></tr>
+      </table>
+      <div style="background:#1E293B;border:0.5px solid var(--green);border-radius:5px;padding:8px 10px;margin-top:8px;font-size:10px;color:#94A3B8;">
+        AI 给的是建议；规则算法始终兜底；冲突时以「夹紧后值 + 保底秒数」为准
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="slide">
+  <div class="kicker">04 · AI DETAILS</div>
+  <div class="title">AI 实现细节：Prompt / 约束夹紧 / 双接入</div>
+  <div class="row" style="margin-top:14px;">
+    <div class="card" style="flex:0 0 50%;">
+      <div style="font-size:14px;font-weight:700;">Prompt 模板（用户提示词）</div>
+      <pre style="background:#0F172A;border-radius:5px;padding:14px;color:#E2E8F0;font-family:var(--font-mono);font-size:10.5px;line-height:1.5;margin-top:10px;max-height:480px;overflow:hidden;">任务：根据路口数据给出下一周期时长建议，仅返回严格 JSON。
+输出要求：
+ - 仅输出一段合法 JSON，不得包含说明、代码块或其他文本。
+ - 字段与类型：{ green: number, yellow: number,
+                red: number, reason: string }
+ - 所有数值单位为秒，取整数。
+ - 约束：green ∈ [minGreen, maxGreen]
+          yellow ∈ [minYellow, maxYellow]
+          (green + yellow + red) ≤ cycleMax
+ - 依据：车流量多时适度延长绿灯；
+        车流量少时适度缩短；遵守限值。
+数据：{ intersectionId, stats }
+/no_think</pre>
+    </div>
+    <div class="col" style="margin-left:18px;">
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;">约束夹紧 clampAdvice()</div>
+        <pre style="background:#0F172A;border-radius:5px;padding:14px;color:#E2E8F0;font-family:var(--font-mono);font-size:10.5px;line-height:1.5;margin-top:10px;">green  = clamp(green,
+         minGreen, maxGreen)
+yellow = clamp(yellow,
+         minYellow, maxYellow)
+if (green+yellow+red > cycleMax)
+  red = cycleMax - green - yellow</pre>
+      </div>
+      <div class="card dark" style="margin-top:14px;">
+        <div style="font-size:14px;font-weight:700;color:white;">云端 / 本地 双接入</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+          <div style="background:#1E293B;border:1px solid var(--blue);border-radius:6px;overflow:hidden;">
+            <div style="background:var(--blue);color:white;text-align:center;padding:6px;font-size:10px;font-weight:700;letter-spacing:1px;">CLOUD · 智谱 GLM</div>
+            <pre style="padding:10px;color:#CBD5E1;font-family:var(--font-mono);font-size:10px;margin:0;line-height:1.5;">AI_PROVIDER=zhipu
+GLM_MODEL=glm-4-flash
+延迟 &lt; 1s
+按 token 计费
+适合上线演示</pre>
+          </div>
+          <div style="background:#1E293B;border:1px solid var(--green);border-radius:6px;overflow:hidden;">
+            <div style="background:var(--green);color:white;text-align:center;padding:6px;font-size:10px;font-weight:700;letter-spacing:1px;">CLOUD · DeepSeek</div>
+            <pre style="padding:10px;color:#CBD5E1;font-family:var(--font-mono);font-size:10px;margin:0;line-height:1.5;">AI_PROVIDER=deepseek
+DEEPSEEK_MODEL=deepseek-v4-flash
+云端按量计费
+适合隐私场景</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="callout yellow" style="margin-top:14px;">→  三个 smoke 脚本验证可用性：npm run ai:smoke / ai:advice / ai:test</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">04 · CORE MODULE · EMERGENCY</div>
+  <div class="title">核心模块 ④：紧急车辆优先通行</div>
+  <div class="row" style="margin-top:14px;">
+    <div class="card" style="flex:1.4;">
+      <div style="font-size:16px;font-weight:700;">紧急状态机</div>
+      <div style="height:2px;width:30px;background:var(--red);margin:8px 0 14px;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:30px 60px;margin:0 50px;">
+        <div style="text-align:center;">
+          <div style="width:130px;height:80px;border-radius:50%;background:var(--green);color:white;font-weight:700;display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:14px;letter-spacing:1px;">NORMAL</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="width:130px;height:80px;border-radius:50%;background:var(--red);color:white;font-weight:700;display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:14px;letter-spacing:1px;">EMERGENCY</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="width:130px;height:80px;border-radius:50%;background:var(--blue);color:white;font-weight:700;display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:14px;letter-spacing:1px;">RESUME</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="width:130px;height:80px;border-radius:50%;background:var(--yellow);color:white;font-weight:700;display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:14px;letter-spacing:1px;">CLEAR</div>
+        </div>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);">
+        关键点：进入 EMERGENCY 立即锁相位、广播 emergencyMode 事件，前端切红并切到紧急方向
+      </div>
+    </div>
+    <div class="card dark" style="flex:1;margin-left:18px;">
+      <div style="font-size:16px;font-weight:700;color:white;">应急清单</div>
+      <div style="height:2px;width:30px;background:var(--red);margin:8px 0 14px;"></div>
+
+      <div style="display:flex;margin-bottom:10px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--red);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:Calibri;flex-shrink:0;">1</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:12px;font-weight:700;color:white;">检测</div>
+          <div style="font-size:10px;color:#94A3B8;">前端/模拟端推送 emergencyMode</div>
+        </div>
+      </div>
+
+
+      <div style="display:flex;margin-bottom:10px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--red);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:Calibri;flex-shrink:0;">2</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:12px;font-weight:700;color:white;">锁定</div>
+          <div style="font-size:10px;color:#94A3B8;">后端 holdAllRed() 阻塞常规相位</div>
+        </div>
+      </div>
+
+
+      <div style="display:flex;margin-bottom:10px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--red);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:Calibri;flex-shrink:0;">3</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:12px;font-weight:700;color:white;">放行</div>
+          <div style="font-size:10px;color:#94A3B8;">强制把目标方向切为绿色相位</div>
+        </div>
+      </div>
+
+
+      <div style="display:flex;margin-bottom:10px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--red);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:Calibri;flex-shrink:0;">4</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:12px;font-weight:700;color:white;">广播</div>
+          <div style="font-size:10px;color:#94A3B8;">Socket.IO 全端切到紧急 UI</div>
+        </div>
+      </div>
+
+
+      <div style="display:flex;margin-bottom:10px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--red);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:Calibri;flex-shrink:0;">5</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:12px;font-weight:700;color:white;">恢复</div>
+          <div style="font-size:10px;color:#94A3B8;">车辆通过后切 ALL_RED 平滑降级</div>
+        </div>
+      </div>
+
+
+      <div style="display:flex;margin-bottom:10px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--red);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:Calibri;flex-shrink:0;">6</div>
+        <div style="margin-left:10px;">
+          <div style="font-size:12px;font-weight:700;color:white;">回流</div>
+          <div style="font-size:10px;color:#94A3B8;">返回 NORMAL 状态继续运行</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="slide dark">
+  <div class="kicker">04 · CORE MODULE</div>
+  <div class="title">核心模块 ⑤：实时可视化（前端）</div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:14px;">
+
+    <div style="background:var(--navy);border:1.5px solid #1E40AF;border-radius:8px;overflow:hidden;">
+      <div style="background:#1E40AF;padding:8px 12px;color:white;font-size:12px;font-weight:700;font-family:monospace;">Dashboard</div>
+      <div style="padding:14px;height:90px;color:#94A3B8;">
+        <div style='display:flex;align-items:flex-end;height:60px;gap:6px;'><div style="width:8px;height:30px;background:#93C5FD;border-radius:2px;"></div><div style="width:8px;height:24px;background:#93C5FD;border-radius:2px;"></div><div style="width:8px;height:36px;background:#93C5FD;border-radius:2px;"></div><div style="width:8px;height:18px;background:#93C5FD;border-radius:2px;"></div><div style="width:8px;height:42px;background:#93C5FD;border-radius:2px;"></div><div style="width:8px;height:27px;background:#93C5FD;border-radius:2px;"></div><div style="width:8px;height:30px;background:#93C5FD;border-radius:2px;"></div><div style="width:8px;height:21px;background:#93C5FD;border-radius:2px;"></div><div style="width:8px;height:33px;background:#93C5FD;border-radius:2px;"></div></div>
+        
+        
+        
+        
+        
+      </div>
+      <div style="padding:8px 12px;color:#94A3B8;font-size:10px;border-top:1px solid #334155;">车流趋势 + 路口状态</div>
+    </div>
+
+
+    <div style="background:var(--navy);border:1.5px solid #10B981;border-radius:8px;overflow:hidden;">
+      <div style="background:#10B981;padding:8px 12px;color:white;font-size:12px;font-weight:700;font-family:monospace;">IntersectionList</div>
+      <div style="padding:14px;height:90px;color:#94A3B8;">
+        
+        <div style='display:flex;gap:14px;justify-content:center;margin-top:18px;'><div style="width:24px;height:24px;border-radius:50%;background:#64748B;"></div><div style="width:24px;height:24px;border-radius:50%;background:#10B981;"></div><div style="width:24px;height:24px;border-radius:50%;background:#64748B;"></div><div style="width:24px;height:24px;border-radius:50%;background:#64748B;"></div></div>
+        
+        
+        
+        
+      </div>
+      <div style="padding:8px 12px;color:#94A3B8;font-size:10px;border-top:1px solid #334155;">路口列表 + 状态灯</div>
+    </div>
+
+
+    <div style="background:var(--navy);border:1.5px solid #F59E0B;border-radius:8px;overflow:hidden;">
+      <div style="background:#F59E0B;padding:8px 12px;color:white;font-size:12px;font-weight:700;font-family:monospace;">IntersectionDetail</div>
+      <div style="padding:14px;height:90px;color:#94A3B8;">
+        
+        
+        <div style='margin:18px auto;width:80%;'><div style='height:8px;background:#94A3B8;border-radius:4px;'></div><div style='height:8px;background:#94A3B8;border-radius:4px;margin-top:14px;'></div><div style='display:flex;gap:4px;margin-top:10px;justify-content:center;'><div style=\"width:14px;height:6px;background:#EF4444;border-radius:1px;\"></div><div style=\"width:14px;height:6px;background:#EF4444;border-radius:1px;\"></div><div style=\"width:14px;height:6px;background:#EF4444;border-radius:1px;\"></div></div></div>
+        
+        
+        
+      </div>
+      <div style="padding:8px 12px;color:#94A3B8;font-size:10px;border-top:1px solid #334155;">单路口四方向排队</div>
+    </div>
+
+
+    <div style="background:var(--navy);border:1.5px solid #EF4444;border-radius:8px;overflow:hidden;">
+      <div style="background:#EF4444;padding:8px 12px;color:white;font-size:12px;font-weight:700;font-family:monospace;">TrafficControl</div>
+      <div style="padding:14px;height:90px;color:#94A3B8;">
+        
+        
+        
+        <div style='display:flex;flex-direction:column;gap:6px;'><div style='background:#EF4444;color:white;text-align:center;padding:5px;border-radius:3px;font-size:9px;'>Force Red</div><div style='background:#10B981;color:white;text-align:center;padding:5px;border-radius:3px;font-size:9px;'>AI: ON</div></div>
+        
+        
+      </div>
+      <div style="padding:8px 12px;color:#94A3B8;font-size:10px;border-top:1px solid #334155;">手动介入 + AI 开关</div>
+    </div>
+
+
+    <div style="background:var(--navy);border:1.5px solid #8B5CF6;border-radius:8px;overflow:hidden;">
+      <div style="background:#8B5CF6;padding:8px 12px;color:white;font-size:12px;font-weight:700;font-family:monospace;">Emergency</div>
+      <div style="padding:14px;height:90px;color:#94A3B8;">
+        
+        
+        
+        
+        <div style='background:#EF4444;color:white;text-align:center;padding:6px;border-radius:4px;font-size:10px;font-weight:700;'>AMBULANCE · 东→西</div><div style='color:#94A3B8;text-align:center;font-size:9px;margin-top:6px;'>ETA 8s · HIGH</div>
+        
+      </div>
+      <div style="padding:8px 12px;color:#94A3B8;font-size:10px;border-top:1px solid #334155;">紧急车辆登记</div>
+    </div>
+
+
+    <div style="background:var(--navy);border:1.5px solid #0EA5E9;border-radius:8px;overflow:hidden;">
+      <div style="background:#0EA5E9;padding:8px 12px;color:white;font-size:12px;font-weight:700;font-family:monospace;">Demo</div>
+      <div style="padding:14px;height:90px;color:#94A3B8;">
+        
+        
+        
+        
+        
+        <div style='display:flex;flex-direction:column;gap:4px;'><div style="background:#1E293B;border:0.5px solid #475569;border-radius:3px;height:6px;position:relative;"><div style="position:absolute;left:2px;top:1px;height:4px;width:30%;background:#0EA5E9;border-radius:2px;"></div></div><div style="background:#1E293B;border:0.5px solid #475569;border-radius:3px;height:6px;position:relative;"><div style="position:absolute;left:2px;top:1px;height:4px;width:60%;background:#0EA5E9;border-radius:2px;"></div></div><div style="background:#1E293B;border:0.5px solid #475569;border-radius:3px;height:6px;position:relative;"><div style="position:absolute;left:2px;top:1px;height:4px;width:90%;background:#0EA5E9;border-radius:2px;"></div></div><div style="background:#1E293B;border:0.5px solid #475569;border-radius:3px;height:6px;position:relative;"><div style="position:absolute;left:2px;top:1px;height:4px;width:120%;background:#0EA5E9;border-radius:2px;"></div></div></div>
+      </div>
+      <div style="padding:8px 12px;color:#94A3B8;font-size:10px;border-top:1px solid #334155;">虚拟路口参数调节</div>
+    </div>
+
+  </div>
+  <div style="background:#1E293B;border-radius:6px;padding:12px 18px;margin-top:14px;color:white;font-size:12px;">
+    <span style="color:#93C5FD;font-weight:700;margin-right:14px;">技术亮点</span>
+    Web Workers 承担倒计时与定时器（避免主线程抖动） · Zustand 管理演示/趋势引擎 · Recharts 渲染趋势 · Socket.IO 五类事件驱动实时刷新
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">05 · DEMO</div>
+  <div class="title">演示效果：四大场景回放</div>
+  <div class="row" style="margin-top:14px;">
+
+    <div class="card" style="flex:1;overflow:hidden;">
+      <div style="position:absolute;left:0;width:6px;height:100%;background:#1E40AF;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:17px;font-weight:700;">场景 ① 早高峰东西向倒灌</div>
+        <div style="background:#1E40AF;color:white;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;font-family:Calibri;">45s</div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:14px;">AI 检测东向排队持续 > 30，自动加长 EW_STRAIGHT 到 45s</div>
+    </div>
+
+
+    <div class="card" style="flex:1;overflow:hidden;">
+      <div style="position:absolute;left:0;width:6px;height:100%;background:#10B981;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:17px;font-weight:700;">场景 ② 夜间低谷自适应快切</div>
+        <div style="background:#10B981;color:white;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;font-family:Calibri;">8s</div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:14px;">4 方向排队 < 12/3s → 提前结束绿灯，平均等待 ↓ 30%</div>
+    </div>
+
+
+    <div class="card" style="flex:1;overflow:hidden;">
+      <div style="position:absolute;left:0;width:6px;height:100%;background:#EF4444;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:17px;font-weight:700;">场景 ③ 救护车紧急放行</div>
+        <div style="background:#EF4444;color:white;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;font-family:Calibri;">ETA 8s</div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:14px;">AMBULANCE 推送 → 锁相位 → 东向放绿 → 通过后平滑恢复</div>
+    </div>
+
+
+    <div class="card" style="flex:1;overflow:hidden;">
+      <div style="position:absolute;left:0;width:6px;height:100%;background:#F59E0B;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:17px;font-weight:700;">场景 ④ 手动介入兜底</div>
+        <div style="background:#F59E0B;color:white;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;font-family:Calibri;">Manual</div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:14px;">运营点击 forceYellow / holdAllRed 立即接管，AI 不干扰</div>
+    </div>
+
+  </div>
+  <div class="callout blue" style="margin-top:18px;">→  现场可演示：登录 → 打开 Demo 页 → 调节 VITE_* 参数观察排队变化 → 触发 emergency</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">05 · METRICS</div>
+  <div class="title">性能指标：实测 vs 目标</div>
+  <div class="row" style="margin-top:14px;">
+
+    <div class="card" style="flex:1;text-align:center;">
+      <div style="height:6px;background:#1E40AF;border-radius:3px;margin:-20px -20px 14px;"></div>
+      <div style="font-size:56px;font-weight:800;color:#1E40AF;line-height:1;">≤ 200</div>
+      <div style="font-size:14px;font-weight:700;color:#1E40AF;">ms</div>
+      <div style="font-size:13px;font-weight:700;margin-top:8px;">AI 建议端到端延迟</div>
+      <div class="muted" style="font-size:10px;margin-top:4px;">智谱 GLM-4-flash 实测中位数</div>
+    </div>
+
+
+    <div class="card" style="flex:1;text-align:center;">
+      <div style="height:6px;background:#10B981;border-radius:3px;margin:-20px -20px 14px;"></div>
+      <div style="font-size:56px;font-weight:800;color:#10B981;line-height:1;">85%</div>
+      <div style="font-size:14px;font-weight:700;color:#10B981;"></div>
+      <div style="font-size:13px;font-weight:700;margin-top:8px;">低峰空放下降</div>
+      <div class="muted" style="font-size:10px;margin-top:4px;">自适应策略相对固定 60s 配时</div>
+    </div>
+
+
+    <div class="card" style="flex:1;text-align:center;">
+      <div style="height:6px;background:#0EA5E9;border-radius:3px;margin:-20px -20px 14px;"></div>
+      <div style="font-size:56px;font-weight:800;color:#0EA5E9;line-height:1;">30%</div>
+      <div style="font-size:14px;font-weight:700;color:#0EA5E9;"></div>
+      <div style="font-size:13px;font-weight:700;margin-top:8px;">平均等待下降</div>
+      <div class="muted" style="font-size:10px;margin-top:4px;">低峰时段仿真对比（虚拟路网）</div>
+    </div>
+
+
+    <div class="card" style="flex:1;text-align:center;">
+      <div style="height:6px;background:#EF4444;border-radius:3px;margin:-20px -20px 14px;"></div>
+      <div style="font-size:56px;font-weight:800;color:#EF4444;line-height:1;">100%</div>
+      <div style="font-size:14px;font-weight:700;color:#EF4444;"></div>
+      <div style="font-size:13px;font-weight:700;margin-top:8px;">故障可降级</div>
+      <div class="muted" style="font-size:10px;margin-top:4px;">AI 故障 → 自适应；两者故障 → 规则</div>
+    </div>
+
+  </div>
+  <div class="card" style="margin-top:18px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="font-size:13px;font-weight:700;">等待时间趋势（虚拟路网 6 分钟仿真）</div>
+      <div style="font-size:10px;color:var(--muted);"><span style="color:var(--red);font-weight:700;">—— 固定配时</span>   <span style="color:var(--green);font-weight:700;">—— 自适应 + AI</span></div>
+    </div>
+    <svg viewBox="0 0 1100 130" style="width:100%;height:130px;background:#F8FAFC;border-radius:4px;">
+      <line x1="20" y1="10" x2="20" y2="110" stroke="#CBD5E1"/>
+      <line x1="20" y1="110" x2="1080" y2="110" stroke="#CBD5E1"/>
+<line x1="20" y1="32.0" x2="126" y2="36.0" stroke="#EF4444" stroke-width="2"/>
+<line x1="126" y1="36.0" x2="232" y2="40.0" stroke="#EF4444" stroke-width="2"/>
+<line x1="232" y1="40.0" x2="338" y2="32.0" stroke="#EF4444" stroke-width="2"/>
+<line x1="338" y1="32.0" x2="444" y2="36.0" stroke="#EF4444" stroke-width="2"/>
+<line x1="444" y1="36.0" x2="550" y2="40.0" stroke="#EF4444" stroke-width="2"/>
+<line x1="550" y1="40.0" x2="656" y2="32.0" stroke="#EF4444" stroke-width="2"/>
+<line x1="656" y1="32.0" x2="762" y2="36.0" stroke="#EF4444" stroke-width="2"/>
+<line x1="762" y1="36.0" x2="868" y2="40.0" stroke="#EF4444" stroke-width="2"/>
+<line x1="868" y1="40.0" x2="974" y2="32.0" stroke="#EF4444" stroke-width="2"/>
+<line x1="20" y1="104.0" x2="126" y2="102.2" stroke="#10B981" stroke-width="2"/>
+<line x1="126" y1="102.2" x2="232" y2="100.4" stroke="#10B981" stroke-width="2"/>
+<line x1="232" y1="100.4" x2="338" y2="98.6" stroke="#10B981" stroke-width="2"/>
+<line x1="338" y1="98.6" x2="444" y2="104.0" stroke="#10B981" stroke-width="2"/>
+<line x1="444" y1="104.0" x2="550" y2="102.2" stroke="#10B981" stroke-width="2"/>
+<line x1="550" y1="102.2" x2="656" y2="100.4" stroke="#10B981" stroke-width="2"/>
+<line x1="656" y1="100.4" x2="762" y2="98.6" stroke="#10B981" stroke-width="2"/>
+<line x1="762" y1="98.6" x2="868" y2="104.0" stroke="#10B981" stroke-width="2"/>
+<line x1="868" y1="104.0" x2="974" y2="102.2" stroke="#10B981" stroke-width="2"/>
+      <text x="1080" y="125" font-size="9" fill="#64748B" font-family="Consolas">t/s</text>
+      <text x="2" y="14" font-size="9" fill="#64748B" font-family="Microsoft YaHei">等待/s</text>
+    </svg>
+  </div>
+  <div class="callout blue" style="margin-top:12px;">→  数据基于虚拟仿真与 smoke 脚本实测；上线后建议接入真实路口数据做 A/B 对比</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">06 · PRACTICALITY</div>
+  <div class="title">实用性分析：不是 demo，是能跑的全栈系统</div>
+  <div class="row" style="margin-top:14px;">
+    <div class="card" style="flex:1;">
+      <div style="font-size:18px;font-weight:700;">落地证据</div>
+      <div style="height:2px;width:30px;background:var(--green);margin:8px 0 10px;"></div>
+
+      <div style="display:flex;margin-bottom:6px;"><div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;font-family:Calibri;flex-shrink:0;">✓</div><div style="margin-left:10px;"><div style="font-size:12px;font-weight:700;">完整仓库</div><div class="muted" style="font-size:10px;">前端 + 后端 + 数据库 + 缓存 全部跑通</div></div></div>
+
+
+      <div style="display:flex;margin-bottom:6px;"><div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;font-family:Calibri;flex-shrink:0;">✓</div><div style="margin-left:10px;"><div style="font-size:12px;font-weight:700;">npm run dev</div><div class="muted" style="font-size:10px;">一键启动前后端（concurrently 调度）</div></div></div>
+
+
+      <div style="display:flex;margin-bottom:6px;"><div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;font-family:Calibri;flex-shrink:0;">✓</div><div style="margin-left:10px;"><div style="font-size:12px;font-weight:700;">3 个 AI smoke</div><div class="muted" style="font-size:10px;">对话连通 / 严格 JSON / 夹紧单测</div></div></div>
+
+
+      <div style="display:flex;margin-bottom:6px;"><div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;font-family:Calibri;flex-shrink:0;">✓</div><div style="margin-left:10px;"><div style="font-size:12px;font-weight:700;">三大页面入口</div><div class="muted" style="font-size:10px;">Dashboard / TrafficControl / Demo 共享 AI 开关</div></div></div>
+
+
+      <div style="display:flex;margin-bottom:6px;"><div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;font-family:Calibri;flex-shrink:0;">✓</div><div style="margin-left:10px;"><div style="font-size:12px;font-weight:700;">自动建库建表</div><div class="muted" style="font-size:10px;">首次启动 database.js 自动 initialize</div></div></div>
+
+
+      <div style="display:flex;margin-bottom:6px;"><div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;font-family:Calibri;flex-shrink:0;">✓</div><div style="margin-left:10px;"><div style="font-size:12px;font-weight:700;">Redis 降级</div><div class="muted" style="font-size:10px;">Redis 缺失时启动降级，仅 AI 缓存失效</div></div></div>
+
+
+      <div style="display:flex;margin-bottom:6px;"><div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;font-family:Calibri;flex-shrink:0;">✓</div><div style="margin-left:10px;"><div style="font-size:12px;font-weight:700;">Web Workers</div><div class="muted" style="font-size:10px;">倒计时与定时器脱离主线程，避免卡顿</div></div></div>
+
+
+      <div style="display:flex;margin-bottom:6px;"><div style="width:30px;height:30px;border-radius:50%;background:var(--green);color:white;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;font-family:Calibri;flex-shrink:0;">✓</div><div style="margin-left:10px;"><div style="font-size:12px;font-weight:700;">本地构建产物</div><div class="muted" style="font-size:10px;">dist/index.html 已可直接部署静态</div></div></div>
+
+    </div>
+    <div class="col" style="margin-left:18px;">
+      <div class="card dark">
+        <div style="font-size:16px;font-weight:700;color:white;">适用场景</div>
+        <div style="height:2px;width:30px;background:var(--green);margin:8px 0 10px;"></div>
+<div style="display:flex;margin-bottom:6px;"><span class="dot green" style="margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;color:white;">校园/园区</div><div style="font-size:10px;color:#94A3B8;">主干道 + 支路混合，潮汐明显</div></div></div>
+<div style="display:flex;margin-bottom:6px;"><span class="dot green" style="margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;color:white;">新区试点</div><div style="font-size:10px;color:#94A3B8;">无历史配时数据，AI 冷启成本低</div></div></div>
+<div style="display:flex;margin-bottom:6px;"><span class="dot green" style="margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;color:white;">临时活动</div><div style="font-size:10px;color:#94A3B8;">演唱会/赛事/施工期，Prompt 加规则即可</div></div></div>
+<div style="display:flex;margin-bottom:6px;"><span class="dot green" style="margin-top:6px;"></span><div><div style="font-size:12px;font-weight:700;color:white;">老旧路口改造</div><div style="font-size:10px;color:#94A3B8;">无需换硬件，软件层即可升级</div></div></div>
+      </div>
+      <div class="card" style="margin-top:14px;">
+        <div style="font-size:16px;font-weight:700;">本课交付清单</div>
+        <div style="height:2px;width:30px;background:var(--blue);margin:8px 0 10px;"></div>
+        <div style="font-size:12px;line-height:1.9;">
+          · 可运行源码 (GitHub) + README<br>
+          · 答辩 PPT (.pptx + HTML 两版)<br>
+          · 答辩大纲 (.md，含演讲词)<br>
+          · 三档 AI smoke 验证脚本<br>
+          · 本地构建产物 dist/ (可静态部署)
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="slide">
+  <div class="kicker">06 · FEASIBILITY</div>
+  <div class="title">可行性分析：技术、成本、风险三维度</div>
+  <div class="row" style="margin-top:14px;">
+
+    <div class="card" style="flex:1;overflow:hidden;">
+      <div style="background:#1E40AF;margin:-20px -20px 14px;padding:14px 20px;color:white;text-align:center;font-size:18px;font-weight:700;">技术可行</div>
+<div style="display:flex;margin-bottom:14px;"><span class="dot" style="background:#1E40AF;margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">成熟栈</div><div class="muted" style="font-size:10px;margin-top:2px;">React + Node + MySQL + Redis，全部社区主流</div></div></div>
+<div style="display:flex;margin-bottom:14px;"><span class="dot" style="background:#1E40AF;margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">分层解耦</div><div class="muted" style="font-size:10px;margin-top:2px;">UI / 通信 / 调度 / 数据 互不阻塞</div></div></div>
+<div style="display:flex;margin-bottom:14px;"><span class="dot" style="background:#1E40AF;margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">降级路径</div><div class="muted" style="font-size:10px;margin-top:2px;">AI 故障 → 自适应；两者故障 → 规则</div></div></div>
+<div style="display:flex;margin-bottom:14px;"><span class="dot" style="background:#1E40AF;margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">LLM 适配</div><div class="muted" style="font-size:10px;margin-top:2px;">DeepSeek 为主、智谱 GLM 备选，Prompt 复用</div></div></div></div>
+
+    <div class="card" style="flex:1;overflow:hidden;">
+      <div style="background:#10B981;margin:-20px -20px 14px;padding:14px 20px;color:white;text-align:center;font-size:18px;font-weight:700;">成本可控</div>
+<div style="display:flex;margin-bottom:14px;"><span class="dot" style="background:#10B981;margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">云端按量</div><div class="muted" style="font-size:10px;margin-top:2px;">glm-4-flash 单次建议约 0.001 元</div></div></div>
+<div style="display:flex;margin-bottom:14px;"><span class="dot" style="background:#10B981;margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">云端按量</div><div class="muted" style="font-size:10px;margin-top:2px;">DeepSeek 云端推理，按 token 计费</div></div></div>
+<div style="display:flex;margin-bottom:14px;"><span class="dot" style="background:#10B981;margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">硬件低</div><div class="muted" style="font-size:10px;margin-top:2px;">无需 GPU；服务器仅 2C2G 即可</div></div></div>
+<div style="display:flex;margin-bottom:14px;"><span class="dot" style="background:#10B981;margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">复用性高</div><div class="muted" style="font-size:10px;margin-top:2px;">复用通用大模型，无训练成本</div></div></div></div>
+
+    <div class="card" style="flex:1;overflow:hidden;">
+      <div style="background:#EF4444;margin:-20px -20px 14px;padding:14px 20px;color:white;text-align:center;font-size:18px;font-weight:700;">风险可控</div>
+<div style="display:flex;margin-bottom:14px;"><span class="dot" style="background:#EF4444;margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">约束夹紧</div><div class="muted" style="font-size:10px;margin-top:2px;">所有 AI 输出经上下限夹紧，不会越界</div></div></div>
+<div style="display:flex;margin-bottom:14px;"><span class="dot" style="background:#EF4444;margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">人在环</div><div class="muted" style="font-size:10px;margin-top:2px;">任何时刻手动 force* 都可接管</div></div></div>
+<div style="display:flex;margin-bottom:14px;"><span class="dot" style="background:#EF4444;margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">可解释</div><div class="muted" style="font-size:10px;margin-top:2px;">reason 字段记录决策依据，便于审计</div></div></div>
+<div style="display:flex;margin-bottom:14px;"><span class="dot" style="background:#EF4444;margin-top:6px;"></span><div><div style="font-size:13px;font-weight:700;">冒烟测试</div><div class="muted" style="font-size:10px;margin-top:2px;">3 个 AI smoke 脚本守住可用性基线</div></div></div></div>
+  </div>
+  <div class="callout blue" style="margin-top:18px;">→  「AI 给建议 + 规则兜底 + 人在环」三道防线，让系统始终可被信任</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">06 · COMPARISON</div>
+  <div class="title">方案对比矩阵：八个维度 vs 现有方案</div>
+  <table class="matrix" style="margin-top:14px;font-size:11px;">
+    <thead><tr><th>维度</th><th>固定配时</th><th>感应控制</th><th>SCATS/SCOOT</th><th>强化学习</th><th>LLM-as-Policy (本项目)</th></tr></thead>
+    <tbody>
+      <tr><td>响应粒度</td><td>分时段</td><td>秒级</td><td>秒级</td><td>秒级</td><td>秒级</td></tr>
+      <tr><td>部署周期</td><td>周级</td><td>月级</td><td>季度级</td><td>月级</td><td>天级 (Prompt 改完即生效)</td></tr>
+      <tr><td>可解释性</td><td>高</td><td>中</td><td>中</td><td>低 (黑盒)</td><td>高 (reason 字段)</td></tr>
+      <tr><td>冷启数据</td><td>无</td><td>无</td><td>需历史</td><td>需大量仿真</td><td>无</td></tr>
+      <tr><td>硬件门槛</td><td>低</td><td>中</td><td>高</td><td>中-高</td><td>低 (API/本地二选一)</td></tr>
+      <tr><td>运维成本</td><td>低</td><td>中</td><td>高</td><td>高</td><td>中 (降级可省)</td></tr>
+      <tr><td>适配潮汐</td><td>差</td><td>中</td><td>良</td><td>良</td><td>优 (语义上下文)</td></tr>
+      <tr><td>紧急车辆</td><td>不支持</td><td>有限</td><td>支持</td><td>支持</td><td>支持 + 手动接管</td></tr>
+    </tbody>
+  </table>
+  <div class="callout green" style="margin-top:18px;">→  在「部署周期 / 可解释 / 冷启数据 / 适配潮汐」四个维度上，本项目相对 SCATS 与 RL 都有明显优势</div>
+</section>
+
+<section class="slide dark">
+  <div class="kicker">06 · INNOVATION SUMMARY</div>
+  <div class="title">创新点总结：让答辩老师能记住的四件事</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:14px;">
+
+    <div style="background:var(--navy);border:1.5px solid #1E40AF;border-radius:10px;padding:20px;display:flex;">
+      <div style="font-size:60px;font-weight:800;color:#1E40AF;font-family:Calibri;line-height:1;">01</div>
+      <div style="margin-left:16px;flex:1;">
+        <div style="font-size:18px;font-weight:700;color:white;">LLM-as-Policy 信号策略</div>
+        <div style="height:2px;width:30px;background:#1E40AF;margin:8px 0;"></div>
+        <div style="font-size:12px;color:#CBD5E1;">把通用大模型当作「会读上下文的策略生成器」，取代部分传统启发式</div>
+      </div>
+    </div>
+
+
+    <div style="background:var(--navy);border:1.5px solid #10B981;border-radius:10px;padding:20px;display:flex;">
+      <div style="font-size:60px;font-weight:800;color:#10B981;font-family:Calibri;line-height:1;">02</div>
+      <div style="margin-left:16px;flex:1;">
+        <div style="font-size:18px;font-weight:700;color:white;">三模式协同调度</div>
+        <div style="height:2px;width:30px;background:#10B981;margin:8px 0;"></div>
+        <div style="font-size:12px;color:#CBD5E1;">规则 + 自适应 + AI 三档可热切换，任一档故障不影响整体运行</div>
+      </div>
+    </div>
+
+
+    <div style="background:var(--navy);border:1.5px solid #0EA5E9;border-radius:10px;padding:20px;display:flex;">
+      <div style="font-size:60px;font-weight:800;color:#0EA5E9;font-family:Calibri;line-height:1;">03</div>
+      <div style="margin-left:16px;flex:1;">
+        <div style="font-size:18px;font-weight:700;color:white;">云端/本地双 AI 接入</div>
+        <div style="height:2px;width:30px;background:#0EA5E9;margin:8px 0;"></div>
+        <div style="font-size:12px;color:#CBD5E1;">DeepSeek 云端为主 + 智谱 GLM 云端备选，按成本 / 延迟灵活切</div>
+      </div>
+    </div>
+
+
+    <div style="background:var(--navy);border:1.5px solid #EF4444;border-radius:10px;padding:20px;display:flex;">
+      <div style="font-size:60px;font-weight:800;color:#EF4444;font-family:Calibri;line-height:1;">04</div>
+      <div style="margin-left:16px;flex:1;">
+        <div style="font-size:18px;font-weight:700;color:white;">约束可解释的 Prompt 范式</div>
+        <div style="height:2px;width:30px;background:#EF4444;margin:8px 0;"></div>
+        <div style="font-size:12px;color:#CBD5E1;">绿/黄/红上下限 + 周期上限夹紧 + reason 字段，便于事后审计</div>
+      </div>
+    </div>
+
+  </div>
+  <div style="background:var(--green);border-radius:6px;padding:14px;margin-top:24px;text-align:center;color:white;font-size:18px;font-weight:700;letter-spacing:2px;">
+    让红绿灯「会看数据 · 能解释 · 可被接管」
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">OUTLOOK · 路线图</div>
+  <div class="title">未来展望：路线图与下一步</div>
+  <div class="row" style="margin-top:14px;">
+
+    <div class="card" style="flex:1;border:2px solid #10B981;overflow:hidden;">
+      <div style="background:#10B981;margin:-20px -20px 14px;padding:12px 20px;color:white;text-align:center;font-size:14px;font-weight:700;">Phase 1 · 已完成</div>
+      <div style="text-align:center;color:#10B981;font-size:11px;font-weight:700;">本学期</div>
+      <div style="border-top:1px solid var(--border);margin:10px 0;"></div>
+<div style="display:flex;margin-bottom:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#10B981;margin-top:6px;flex-shrink:0;"></span><div style="margin-left:8px;font-size:12px;">全栈 demo 跑通</div></div>
+<div style="display:flex;margin-bottom:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#10B981;margin-top:6px;flex-shrink:0;"></span><div style="margin-left:8px;font-size:12px;">三档策略协同</div></div>
+<div style="display:flex;margin-bottom:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#10B981;margin-top:6px;flex-shrink:0;"></span><div style="margin-left:8px;font-size:12px;">AI 双接入 smoke 通过</div></div>
+<div style="display:flex;margin-bottom:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#10B981;margin-top:6px;flex-shrink:0;"></span><div style="margin-left:8px;font-size:12px;">六大页面可视化</div></div></div>
+
+    <div class="card" style="flex:1;border:2px solid #1E40AF;overflow:hidden;">
+      <div style="background:#1E40AF;margin:-20px -20px 14px;padding:12px 20px;color:white;text-align:center;font-size:14px;font-weight:700;">Phase 2 · 近期</div>
+      <div style="text-align:center;color:#1E40AF;font-size:11px;font-weight:700;">1-3 个月</div>
+      <div style="border-top:1px solid var(--border);margin:10px 0;"></div>
+<div style="display:flex;margin-bottom:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#1E40AF;margin-top:6px;flex-shrink:0;"></span><div style="margin-left:8px;font-size:12px;">接入真实路口数据 (SUMO/VISSIM)</div></div>
+<div style="display:flex;margin-bottom:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#1E40AF;margin-top:6px;flex-shrink:0;"></span><div style="margin-left:8px;font-size:12px;">对比基线 Webster/SCOOT</div></div>
+<div style="display:flex;margin-bottom:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#1E40AF;margin-top:6px;flex-shrink:0;"></span><div style="margin-left:8px;font-size:12px;">Prompt 自动优化</div></div>
+<div style="display:flex;margin-bottom:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#1E40AF;margin-top:6px;flex-shrink:0;"></span><div style="margin-left:8px;font-size:12px;">A/B 实验框架</div></div></div>
+
+    <div class="card" style="flex:1;border:2px solid #8B5CF6;overflow:hidden;">
+      <div style="background:#8B5CF6;margin:-20px -20px 14px;padding:12px 20px;color:white;text-align:center;font-size:14px;font-weight:700;">Phase 3 · 中期</div>
+      <div style="text-align:center;color:#8B5CF6;font-size:11px;font-weight:700;">3-6 个月</div>
+      <div style="border-top:1px solid var(--border);margin:10px 0;"></div>
+<div style="display:flex;margin-bottom:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#8B5CF6;margin-top:6px;flex-shrink:0;"></span><div style="margin-left:8px;font-size:12px;">多路口协同 (RL + LLM 混合)</div></div>
+<div style="display:flex;margin-bottom:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#8B5CF6;margin-top:6px;flex-shrink:0;"></span><div style="margin-left:8px;font-size:12px;">城市级联动仿真</div></div>
+<div style="display:flex;margin-bottom:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#8B5CF6;margin-top:6px;flex-shrink:0;"></span><div style="margin-left:8px;font-size:12px;">边缘部署 (Raspberry Pi)</div></div>
+<div style="display:flex;margin-bottom:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#8B5CF6;margin-top:6px;flex-shrink:0;"></span><div style="margin-left:8px;font-size:12px;">开源社区运营</div></div></div>
+  </div>
+  <div class="card dark" style="margin-top:18px;">
+    <div style="color:#93C5FD;font-size:14px;font-weight:700;">可扩展方向</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:14px;">
+<div><div style="font-size:12px;font-weight:700;color:white;">🔭 多路口协同</div><div style="font-size:10px;color:#94A3B8;margin-top:4px;">把单路口扩展到区域协调</div></div>
+<div><div style="font-size:12px;font-weight:700;color:white;">📡 多模态感知</div><div style="font-size:10px;color:#94A3B8;margin-top:4px;">摄像头 + 雷达融合车流检测</div></div>
+<div><div style="font-size:12px;font-weight:700;color:white;">🛡 城市数字孪生</div><div style="font-size:10px;color:#94A3B8;margin-top:4px;">接入孪生平台做大规模仿真</div></div>
+<div><div style="font-size:12px;font-weight:700;color:white;">🌐 国际化场景</div><div style="font-size:10px;color:#94A3B8;margin-top:4px;">支持英文 Prompt 与不同时区</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="slide dark">
+  <div style="padding:30px 0;">
+    <span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#EF4444;vertical-align:middle;margin-right:6px;"></span>
+    <span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#F59E0B;vertical-align:middle;margin-right:6px;"></span>
+    <span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#10B981;vertical-align:middle;margin-right:6px;"></span>
+  </div>
+  <div style="margin-top:80px;">
+    <div class="thx">THANK YOU</div>
+    <div class="thx-sub">感谢聆听 · 欢迎提问与交流</div>
+  </div>
+  <div style="display:flex;justify-content:center;gap:18px;margin-top:60px;">
+<div style="background:var(--navy);border:1.5px solid #1E40AF;border-radius:8px;padding:18px 50px;color:white;font-size:16px;font-weight:700;">让数据决定信号</div>
+<div style="background:var(--navy);border:1.5px solid #0EA5E9;border-radius:8px;padding:18px 50px;color:white;font-size:16px;font-weight:700;">让 AI 可被解释</div>
+<div style="background:var(--navy);border:1.5px solid #10B981;border-radius:8px;padding:18px 50px;color:white;font-size:16px;font-weight:700;">让人始终能接管</div>
+  </div>
+  <div style="background:white;border-radius:10px;padding:18px;margin:30px 60px 0;text-align:center;">
+    <div style="font-size:24px;font-weight:700;color:var(--ink);letter-spacing:4px;font-family:Calibri;">Q &amp; A</div>
+  </div>
+  <div style="position:absolute;bottom:36px;left:0;right:0;text-align:center;color:var(--muted);font-size:12px;">
+    答辩人：__________   ·   学号：__________   ·   课程：科学研究与创新   ·   日期：2026.06
+  </div>
+</section>
+
+
+</div><!-- deck -->
+</div><!-- stage -->
+
+<div class="kbd-hint" id="kbd"><kbd>←</kbd> <kbd>→</kbd> 翻页   ·   <kbd>F</kbd> 全屏   ·   <kbd>Home</kbd> 首页</div>
+
+<script>
+(function(){
+  var slides = document.querySelectorAll('.slide');
+  var total = slides.length;
+  var info = document.getElementById('page-info');
+  var kbd = document.getElementById('kbd');
+  var saved = parseInt(localStorage.getItem('deck-page') || '1', 10);
+  var cur = Math.min(Math.max(saved, 1), total);
+
+  function show(n){
+    cur = Math.min(Math.max(n, 1), total);
+    slides.forEach(function(s, i){
+      s.classList.toggle('active', i === cur - 1);
+    });
+    info.textContent = cur + ' / ' + total;
+    localStorage.setItem('deck-page', cur);
+  }
+
+  show(cur);
+  setTimeout(function(){ kbd.classList.add('show'); }, 600);
+  setTimeout(function(){ kbd.classList.remove('show'); }, 4000);
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { show(cur + 1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { show(cur - 1); e.preventDefault(); }
+    else if (e.key === 'Home') { show(1); e.preventDefault(); }
+    else if (e.key === 'End') { show(total); e.preventDefault(); }
+    else if (e.key === 'f' || e.key === 'F') {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen();
+    } else if (/^[0-9]$/.test(e.key)) { show(parseInt(e.key, 10)); e.preventDefault(); }
+  });
+
+  document.addEventListener('click', function(e){
+    if (e.target.tagName === 'A') return;
+    var x = e.clientX / window.innerWidth;
+    if (x > 0.6) show(cur + 1);
+    else if (x < 0.4) show(cur - 1);
+  });
+
+  // touch swipe
+  var tx = 0;
+  document.addEventListener('touchstart', function(e){ tx = e.touches[0].clientX; }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    var dx = e.changedTouches[0].clientX - tx;
+    if (Math.abs(dx) > 50) show(cur + (dx < 0 ? 1 : -1));
+  }, {passive:true});
+})();
+</script>
+</body>
+</html>

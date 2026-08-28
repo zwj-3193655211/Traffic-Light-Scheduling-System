@@ -50,6 +50,20 @@ app.use('/api/settings', settingsRoutes)
 app.use('/api/traffic-algorithm', trafficAlgorithmRoutes)
 
 /**
+ * P2.5.2 AI 健康面板：暴露 AI 顾问运行时指标（调用/成功率/耗时/熔断/降本/最近建议）
+ */
+import { aiTrafficAdvisor } from './services/aiTrafficAdvisor.ts'
+import { aiRuntime } from './services/aiRuntime.ts'
+app.get('/api/ai/metrics', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    advisor: aiTrafficAdvisor.getAdvisorMetrics(),
+    runtime: { ...aiRuntime },
+    ts: Date.now(),
+  })
+})
+
+/**
  * health
  */
 app.use(

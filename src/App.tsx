@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import Header from './components/Header';
@@ -14,8 +14,13 @@ import Login from './pages/Login';
 import { useDemoEngine } from './stores/demoEngine';
 
 function App() {
-  const authed = !!localStorage.getItem('auth_token');
+  const [authed, setAuthed] = useState(() => !!localStorage.getItem('auth_token'));
   const startDemo = useDemoEngine((s) => s.start);
+  useEffect(() => {
+    const check = () => setAuthed(!!localStorage.getItem('auth_token'));
+    window.addEventListener('storage', check);
+    return () => window.removeEventListener('storage', check);
+  }, []);
   useEffect(() => { if (authed) startDemo() }, [authed, startDemo]);
   return (
     <Router>
