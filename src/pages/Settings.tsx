@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Save, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
 
 import { useAiMode } from '@/hooks/useAiMode';
-import { intersectionsApi, settingsApi, type IntersectionParams } from '@/lib/api';
+import { intersectionsApi, settingsApi, aiConfigApi, type IntersectionParams, type AiConfig } from '@/lib/api';
 import type { Intersection } from '@/types';
 
 interface SystemSettings {
@@ -29,6 +29,74 @@ const Settings: React.FC = () => {
   const [params, setParams] = useState<IntersectionParams | null>(null);
   // AI 开关逻辑与 Dashboard / TrafficControl / Demo 共用
   const { enabled: aiEnabled, loading: aiLoading, setEnabled: updateAiModeRaw } = useAiMode();
+
+  // 前端 AI 配置面板（provider / API Key / 模型名 / 思考开关）
+  const [aiConfig, setAiConfig] = useState<AiConfig>({
+    provider: 'deepseek',
+    apiKey: '',
+    model: '',
+    enableThinking: false,
+  });
+  const [aiConfigLoading, setAiConfigLoading] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+
+  const loadAiConfig = useCallback(async () => {
+    try {
+      const data = await aiConfigApi.get();
+      setAiConfig({
+        provider: data.provider || 'deepseek',
+        apiKey: data.apiKey || '',
+        model: data.model || '',
+        enableThinking: !!data.enableThinking,
+      });
+    } catch {
+      /* 后端不可用时保留默认表单 */
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAiConfig();
+  }, [loadAiConfig]);
+
+  const PROVIDER_OPTIONS = [
+    { value: 'llamacpp', label: '本地 llama.cpp', hint: '离线运行，免 API Key' },
+    { value: 'deepseek', label: '云端 DeepSeek', hint: '需 API Key' },
+    { value: 'zhipu', label: '智谱 GLM', hint: '需 API Key' },
+  ];
+  const PROVIDER_MODEL_DEFAULT: Record<string, string> = {
+    deepseek: 'deepseek-chat',
+    zhipu: 'glm-4-flash',
+    llamacpp: 'local-gguf',
+  };
+
+  const handleProviderChange = (next: string) => {
+    setAiConfig((prev) => ({
+      ...prev,
+      provider: next,
+      // 切换 provider 时若模型框为空，自动填入该 provider 的默认模型名
+      model: prev.model && prev.model.trim() ? prev.model : PROVIDER_MODEL_DEFAULT[next] ?? '',
+    }));
+  };
+
+  const handleSaveAiConfig = async () => {
+    setAiConfigLoading(true);
+    setMessage(null);
+    try {
+      const data = await aiConfigApi.set({
+        provider: aiConfig.provider,
+        apiKey: aiConfig.apiKey,
+        model: aiConfig.model,
+        enableThinking: aiConfig.enableThinking,
+      });
+      setAiConfig((prev) => ({ ...prev, ...data }));
+      setMessage({ type: 'success', text: 'AI 配置已保存并即时生效' });
+    } catch {
+      setMessage({ type: 'error', text: '保存 AI 配置失败' });
+    } finally {
+      setAiConfigLoading(false);
+      setTimeout(() => setMessage(null), 3000);
+    }
+  };
 
   const updateAiMode = useCallback(
     async (enabled: boolean) => {
@@ -252,7 +320,7 @@ const Settings: React.FC = () => {
           {/* AI 设置 */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-6">AI 智能托管</h2>
-            
+
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -271,6 +339,103 @@ const Settings: React.FC = () => {
                       aiEnabled ? 'translate-x-5' : 'translate-x-0'
                     }`}
                   />
+                </button>
+              </div>
+
+              <hr className="border-gray-200" />
+
+              {/* AI 运行模式（本地 / 云端） */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">运行模式</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {PROVIDER_OPTIONS.map((opt) => {
+                    const active = aiConfig.provider === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => handleProviderChange(opt.value)}
+                        className={`text-left px-3 py-2 rounded-lg border transition-colors ${
+                          active
+                            ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <div className="text-sm font-medium text-gray-900">{opt.label}</div>
+                        <div className="text-xs text-gray-500 mt-0.5">{opt.hint}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* API Key（仅云端模式显示） */}
+              {aiConfig.provider !== 'llamacpp' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">API Key</label>
+                  <div className="flex gap-2">
+                    <input
+                      type={showKey ? 'text' : 'password'}
+                      value={aiConfig.apiKey}
+                      onChange={(e) => setAiConfig({ ...aiConfig, apiKey: e.target.value })}
+                      placeholder="粘贴你的 API Key"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey((s) => !s)}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+                    >
+                      {showKey ? '隐藏' : '显示'}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">明文保存于本地 .env，仅适合本地 demo。</p>
+                </div>
+              )}
+
+              {/* 模型名 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">模型名</label>
+                <input
+                  type="text"
+                  value={aiConfig.model}
+                  onChange={(e) => setAiConfig({ ...aiConfig, model: e.target.value })}
+                  placeholder={PROVIDER_MODEL_DEFAULT[aiConfig.provider] ?? ''}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* 思考开关（本地 llama.cpp / Qwen3 系） */}
+              {aiConfig.provider === 'llamacpp' && (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-900">关闭思考模式</h3>
+                    <p className="text-xs text-gray-500 mt-1">Qwen3 系默认开启思考，关闭后响应更快、JSON 更稳定</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAiConfig({ ...aiConfig, enableThinking: !aiConfig.enableThinking })}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      !aiConfig.enableThinking ? 'bg-blue-600' : 'bg-gray-200'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        !aiConfig.enableThinking ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSaveAiConfig}
+                  disabled={aiConfigLoading}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {aiConfigLoading ? '保存中...' : '保存 AI 配置'}
                 </button>
               </div>
             </div>

@@ -7,7 +7,7 @@
 import type { Server as IOServer } from 'socket.io'
 
 import * as redis from '../config/redis.js'
-import { setModelOverride } from './aiTrafficAdvisor.ts'
+import { setModelOverride, applyAiConfig } from './aiTrafficAdvisor.ts'
 
 export async function startSocketBridge(io: IOServer) {
   try {
@@ -42,6 +42,10 @@ export async function startSocketBridge(io: IOServer) {
   // 运行时热切换模型：收到广播即刻生效（tick 内也会再读一次 Redis，双重保险）
     await redis.subscribeMessage('settings:ai_model_changed', (msg: any) => {
     try { setModelOverride(msg?.model ? String(msg.model) : null); } catch {}
+  });
+  // 前端 AI 配置面板写入后热切换 provider/key/model/思考开关（与 ai-config 路由的即时 applyAiConfig 互为兜底）
+    await redis.subscribeMessage('settings:ai_config_changed', (msg: any) => {
+    try { applyAiConfig(msg ?? null); } catch {}
   });
   } catch {}
 }

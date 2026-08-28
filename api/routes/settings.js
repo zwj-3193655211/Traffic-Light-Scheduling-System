@@ -1,7 +1,39 @@
 import express from 'express';
 const router = express.Router();
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { pool } from '../config/database.js';
 import { setCache, getCache, deleteCache, publishMessage } from '../config/redis.js';
+// 前端 AI 配置面板写入后，直接在本进程热切换（即便 Redis 未启动也能即时生效）
+import { applyAiConfig, getAiConfig } from '../services/aiTrafficAdvisor.ts';
+
+// .env 实际位于项目根目录（api 目录的上一级）
+const ENV_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env');
+
+// 仅更新 KEY=VALUE 行，保留注释与未知行；value 为 null/undefined 表示删除该行
+function updateEnvFile(updates) {
+  let content = '';
+  try { content = fs.readFileSync(ENV_PATH, 'utf8'); } catch { content = ''; }
+  const lines = content.split(/\r?\n/);
+  const seen = new Set();
+  const out = [];
+  for (const line of lines) {
+    const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (m && m[1] in updates) {
+      seen.add(m[1]);
+      const val = updates[m[1]];
+      if (val === null || val === undefined) continue; // 删除
+      out.push(`${m[1]}=${val}`);
+      continue;
+    }
+    out.push(line);
+  }
+  for (const [k, v] of Object.entries(updates)) {
+    if (!seen.has(k) && v !== null && v !== undefined) out.push(`${k}=${v}`);
+  }
+  fs.writeFileSync(ENV_PATH, out.join('\n') + '\n', 'utf8');
+}
 
 // 获取系统设置
 router.get('/', async (req, res) => {
@@ -277,6 +309,67 @@ router.post('/ai-model', async (req, res) => {
         res.json({ success: true, message: 'AI模型已更新', data: m });
     } catch (error) {
         res.status(500).json({ success: false, message: '更新AI模型失败', error: error.message });
+    }
+});
+
+// 前端 AI 配置面板：读取 / 写入 当前生效的 AI provider + Key + 模型 + 思考开关。
+// 写入策略（用户选择）：写回 .env（持久化）+ 本进程热切换 applyAiConfig（即时生效，无需重启）。
+// 安全提示：API Key 以明文回显与落盘，仅适合本地 demo；生产环境务必改用密钥管理。
+const AI_PROVIDERS = ['deepseek', 'zhipu', 'llamacpp'];
+
+router.get('/ai-config', async (req, res) => {
+    try {
+        res.json({ success: true, data: getAiConfig() });
+    } catch (error) {
+        res.status(500).json({ success: false, message: '获取AI配置失败', error: error.message });
+    }
+});
+
+router.post('/ai-config', async (req, res) => {
+    try {
+        const { provider, apiKey, model, enableThinking, baseUrl } = req.body || {};
+        const p = String(provider || '').trim().toLowerCase();
+        if (!AI_PROVIDERS.includes(p)) {
+            return res.status(400).json({ success: false, message: `provider 必须是 ${AI_PROVIDERS.join(' / ')}` });
+        }
+        const cfg = {
+            provider: p,
+            apiKey: String(apiKey ?? '').trim(),
+            model: String(model ?? '').trim(),
+            enableThinking: enableThinking === true || enableThinking === 'true',
+        };
+        if (baseUrl && String(baseUrl).trim()) cfg.baseUrl = String(baseUrl).trim();
+
+        // 映射到对应 provider 的 .env 变量并写回（保留注释与无关行）
+        const updates = { AI_PROVIDER: p };
+        if (p === 'deepseek') {
+            if (cfg.model) updates.DEEPSEEK_MODEL = cfg.model;
+            if (cfg.apiKey) updates.DEEPSEEK_API_KEY = cfg.apiKey;
+        } else if (p === 'zhipu') {
+            if (cfg.model) updates.GLM_MODEL = cfg.model;
+            if (cfg.apiKey) updates.GLM_API_KEY = cfg.apiKey;
+        } else {
+            // llamacpp 本地免密钥；模型名与思考开关可配
+            if (cfg.model) updates.LLAMACPP_MODEL = cfg.model;
+            updates.LLAMACPP_ENABLE_THINKING = cfg.enableThinking ? '1' : '0';
+            if (cfg.baseUrl) updates.LLAMACPP_BASE_URL = cfg.baseUrl;
+        }
+        try {
+            updateEnvFile(updates);
+        } catch (e) {
+            console.error('[AI配置] 写回 .env 失败:', e);
+            return res.status(500).json({ success: false, message: '写回 .env 失败（检查文件权限）', error: String(e.message || e) });
+        }
+
+        // 即时热切换（即便 Redis 未启动也生效）；再发广播供其他消费方/页面同步
+        applyAiConfig(cfg);
+        try {
+            await publishMessage('settings:ai_config_changed', { ...cfg, ts: Date.now() });
+        } catch {}
+
+        res.json({ success: true, message: 'AI配置已保存', data: getAiConfig() });
+    } catch (error) {
+        res.status(500).json({ success: false, message: '更新AI配置失败', error: error.message });
     }
 });
 

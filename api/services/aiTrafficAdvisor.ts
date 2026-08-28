@@ -124,6 +124,67 @@ export function setModelOverride(m: string | null) {
   const t = m ? String(m).trim() : ''
   modelOverride = t ? t : null
 }
+
+// ---- 运行时配置覆盖层（前端 /api/settings/ai-config 写入，无需重启）----
+// 覆盖面比 modelOverride 更广：provider / apiKey / model / baseUrl / 思考开关。
+// 优先级：运行时覆盖 > system:ai_model(Redis) > .env env。
+export interface AiRuntimeConfig {
+  /** deepseek | zhipu | llamacpp */
+  provider?: string
+  /** 明文 API Key（仅云端 provider 需要；llama.cpp 免密钥） */
+  apiKey?: string
+  /** 模型名（覆盖对应 provider 的 defaultModel） */
+  model?: string
+  /** 自定义 base URL（主要给本地 llama.cpp 用） */
+  baseUrl?: string
+  /** 是否开启思考模式（llama.cpp/Qwen3 用；默认关闭以获得纯 JSON 响应） */
+  enableThinking?: boolean
+}
+
+let runtimeConfig: AiRuntimeConfig | null = null
+
+/** 由后端 /api/settings/ai-config 调用，热切换当前生效的 AI 配置（无需重启进程） */
+export function applyAiConfig(cfg: AiRuntimeConfig | null) {
+  runtimeConfig = cfg && Object.keys(cfg).length ? { ...cfg } : null
+  console.log(
+    `[AI] applyAiConfig => provider=${runtimeConfig?.provider ?? '(env)'} model=${runtimeConfig?.model ?? '(env)'} thinking=${runtimeConfig?.enableThinking ?? '(env)'}`
+  )
+}
+
+/**
+ * 解析当前生效的 provider + 已解析的 apiKey。
+ * 运行时覆盖优先：provider 切换、baseURL / model / 思考开关 都合并进返回的 ProviderConfig，
+ * apiKey 直接给出（不再走 process.env[p.apiKeyEnv]）。
+ */
+function resolveProvider(): { p: ProviderConfig; apiKey: string } {
+  if (runtimeConfig?.provider && PROVIDERS[runtimeConfig.provider]) {
+    const base = PROVIDERS[runtimeConfig.provider]
+    const p: ProviderConfig = { ...base }
+    if (runtimeConfig.baseUrl && runtimeConfig.baseUrl.trim()) {
+      p.baseURL = runtimeConfig.baseUrl.trim()
+    }
+    if (runtimeConfig.model && runtimeConfig.model.trim()) {
+      p.defaultModel = runtimeConfig.model.trim()
+    }
+    if (runtimeConfig.enableThinking !== undefined) {
+      p.chatTemplateKwargs = runtimeConfig.enableThinking ? undefined : { enable_thinking: false }
+    }
+    return { p, apiKey: (runtimeConfig.apiKey ?? '').trim() }
+  }
+  return { p: provider, apiKey: (process.env[provider.apiKeyEnv] ?? '').trim() }
+}
+
+/** 返回当前生效的 AI 配置（明文 Key，供前端回显；见 SETTINGS 安全提示） */
+export function getAiConfig(): AiRuntimeConfig {
+  if (runtimeConfig) return { ...runtimeConfig }
+  return {
+    provider: providerName,
+    apiKey: provider.requiresApiKey ? (process.env[provider.apiKeyEnv] ?? '') : '',
+    model: provider.defaultModel,
+    baseUrl: provider.baseURL,
+    enableThinking: provider.chatTemplateKwargs ? false : true,
+  }
+}
 /**
  * 生效模型名。必须按 provider 解析：本地 llama.cpp 与云端 DeepSeek 的模型名不通用，
  * 否则回退到备用 provider 时会把 "local-gguf" 发给云端导致 model not found。
@@ -287,14 +348,14 @@ const AI_NO_CHANGE = 'AI建议不调整'
  */
 async function requestAdvice(
   p: ProviderConfig,
+  apiKey: string,
   ctx: AiContext,
   constraints: Constraints,
   abortSignal?: AbortSignal
 ): Promise<AiAdvice> {
   const url = resolveEndpoint(p.baseURL)
-  const apiKey = (process.env[p.apiKeyEnv] ?? '').trim()
   if (p.requiresApiKey && !apiKey) {
-    throw new Error(`未配置 ${p.apiKeyEnv}，provider=${p.label} 不可用`)
+    throw new Error(`未配置 ${p.apiKeyEnv ?? 'API Key'}，provider=${p.label} 不可用`)
   }
   const stats = ctx.stats as any
   const fmt = stats.formattedStats || {}
@@ -458,17 +519,19 @@ export async function getAdvice(
     throw new Error('AI熔断器开启(OPEN)，走规则降级')
   }
 
+  const active = resolveProvider()
   try {
-    return await requestAdvice(provider, ctx, constraints, abortSignal)
+    return await requestAdvice(active.p, active.apiKey, ctx, constraints, abortSignal)
   } catch (err: any) {
     // "不建议调整"是模型的有效答复，不是故障，无需回退
     if (err?.message === AI_NO_CHANGE || !fallbackProvider) throw err
 
     console.warn(
-      `[AI] 主 provider=${provider.label} 调用失败，切换备用 provider=${fallbackProvider.label}（原因：${err?.message}）`
+      `[AI] 主 provider=${active.p.label} 调用失败，切换备用 provider=${fallbackProvider.label}（原因：${err?.message}）`
     )
     try {
-      return await requestAdvice(fallbackProvider, ctx, constraints, abortSignal)
+      const fallbackApiKey = (process.env[fallbackProvider.apiKeyEnv] ?? '').trim()
+      return await requestAdvice(fallbackProvider, fallbackApiKey, ctx, constraints, abortSignal)
     } catch {
       // 两者都失败时抛出主 provider 的错误，便于定位首选链路的问题
       throw err
@@ -479,16 +542,24 @@ export async function getAdvice(
 export const aiTrafficAdvisor = {
   getAdvice,
   getAdvisorMetrics,
+  getAiConfig,
+  applyAiConfig,
   /** 供健康面板展示当前生效的 provider 组合 */
-  describeProvider: () => ({
-    provider: providerName,
-    label: provider.label,
-    model: effectiveModel(),
-    endpoint: resolveEndpoint(provider.baseURL),
-    fallback: fallbackProvider
-      ? { provider: fallbackName, label: fallbackProvider.label }
-      : null,
-  }),
+  describeProvider: () => {
+    const { p, apiKey } = resolveProvider()
+    return {
+      provider: runtimeConfig?.provider ?? providerName,
+      label: p.label,
+      model: effectiveModel(p),
+      endpoint: resolveEndpoint(p.baseURL),
+      requiresApiKey: p.requiresApiKey,
+      hasApiKey: !!apiKey,
+      enableThinking: p.chatTemplateKwargs ? false : true,
+      fallback: fallbackProvider
+        ? { provider: fallbackName, label: fallbackProvider.label }
+        : null,
+    }
+  },
 }
 
 export const clampAdviceForTest = clampAdvice

@@ -4,7 +4,7 @@
  * 说明：Redis 不可用时不会阻塞服务启动，所有读写均降级为 no-op 并返回安全值，
  * 由调用方决定是否兜底（AI 开关缓存会失效，但配时逻辑不受影响）。
  */
-import redis from 'redis'
+import { createClient } from 'redis'
 import 'dotenv/config'
 
 const HOST = process.env.REDIS_HOST || 'localhost'
@@ -16,15 +16,15 @@ const clientOptions = {
   socket: {
     host: HOST,
     port: PORT,
-    reconnectStrategy: (attempts) => {
-      if (attempts > 10) return new Error('Redis 重连次数已用完')
-      return Math.min(attempts * 100, 3000)
-    },
+    // 永不放弃：Redis 可能晚于应用启动，客户端会按此策略在后台持续自动重连，
+    // 直到 Redis 就绪后自动恢复（无需重启应用）。首次 connect() 失败会 reject，
+    // 但 redis 仍会按本策略后台重试，故不要返回 Error 让它停止。
+    reconnectStrategy: (attempts) => Math.min(attempts * 500, 3000),
   },
   password: PASSWORD,
 }
 
-const redisClient = redis.createClient(clientOptions)
+const redisClient = createClient(clientOptions)
 const subscriber = redisClient.duplicate()
 const publisher = redisClient.duplicate()
 
@@ -52,7 +52,9 @@ export async function initializeRedis() {
       console.log('[Redis] 连接初始化完成')
       return true
     } catch (error) {
-      console.error('[Redis] 连接初始化失败:', error.message)
+      // 首次 connect 失败只代表 Redis 此刻尚未就绪；客户端会按 reconnectStrategy 后台自动重连，
+      // 因此这里不视为致命错误，应用照常启动，Redis 就绪后自动恢复。
+      console.warn('[Redis] 暂未连接（将在后台自动重试）:', error.message)
       return false
     }
   })()

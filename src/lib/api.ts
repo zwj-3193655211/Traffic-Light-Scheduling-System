@@ -68,6 +68,21 @@ export const aiModeApi = {
   set: (enabled: boolean) => api.post<boolean>('/settings/ai-mode', { enabled }),
 }
 
+/** 前端 AI 配置面板：provider + API Key + 模型名 + 思考开关 */
+export interface AiConfig {
+  provider: string
+  /** 明文回显（仅云端 provider 使用；llama.cpp 为空） */
+  apiKey: string
+  model: string
+  baseUrl?: string
+  enableThinking: boolean
+}
+
+export const aiConfigApi = {
+  get: () => api.get<AiConfig>('/settings/ai-config'),
+  set: (cfg: Partial<AiConfig>) => api.post<AiConfig>('/settings/ai-config', cfg),
+}
+
 export const authApi = {
   login: (username: string, password: string) =>
     api.post<{ token: string; expires_at: string; username: string }>('/auth/login', { username, password }),
