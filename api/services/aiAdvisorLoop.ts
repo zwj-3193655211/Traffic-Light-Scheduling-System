@@ -384,7 +384,13 @@ export async function startAiAdvisorLoop(io: IOServer) {
               )
                 .then((adv) => {
                   try {
-                    if (redis.setCache) redis.setCache(cacheKey, { green: adv.green, reason: adv.reason ?? '', ts: Date.now() }, AI_ADVICE_INTERVAL_MS * 2);
+                    // 缓存窗口 = 2 个轮询周期。注意 setCache 的过期参数单位是【秒】，
+                    // 之前误传 AI_ADVICE_INTERVAL_MS * 2（毫秒数值），导致本想缓存 20 秒
+                    // 实际缓存了约 5.6 小时——AI 建议整天都在吃旧缓存，LLM 调用数为 0。
+                    if (redis.setCache) {
+                      const cacheTtlSeconds = Math.max(5, Math.ceil((AI_ADVICE_INTERVAL_MS * 2) / 1000));
+                      redis.setCache(cacheKey, { green: adv.green, reason: adv.reason ?? '', ts: Date.now() }, cacheTtlSeconds);
+                    }
                   } catch {}
                   try {
                     applyAiAdvice(intersectionId, adv, { yellowFixed, cycleMax, tracker, currentPhase });

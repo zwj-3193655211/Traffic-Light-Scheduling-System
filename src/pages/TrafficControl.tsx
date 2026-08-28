@@ -64,8 +64,9 @@ const TrafficControl: React.FC = () => {
 
   useEffect(() => {
     const s = getSocket();
-    // UI 的 displayLights 只由 worker 驱动，避免双源更新导致读秒跳变
-    s.on('trafficLightUpdate', (data: any) => {
+    // 注意：s 是全局共享单例，卸载时绝不能 close()/disconnect()——
+    // socket.io 手动断开后永不自动重连，会让所有页面的实时推送永久失效。
+    const onTrafficLightUpdate = (data: any) => {
       if (!Array.isArray(data) || data.length === 0) return;
       const selected = selectedIntersectionRef.current
       if (selected != null && data[0].intersection_id !== selected) return
@@ -73,8 +74,10 @@ const TrafficControl: React.FC = () => {
       if (workerRef.current) {
         workerRef.current.postMessage({ type: 'INIT', lights: data });
       }
-    });
-    s.on('trafficTimingUpdate', (data: any) => {
+    };
+    s.on('trafficLightUpdate', onTrafficLightUpdate);
+
+    const onTrafficTimingUpdate = (data: any) => {
       if (aiEnabledRef.current && data?.source === 'ai') {
         setLastAiAdvice({
           intersectionId: data.intersectionId,
@@ -82,9 +85,11 @@ const TrafficControl: React.FC = () => {
           reason: data.advice?.reason,
         });
       }
-    });
+    };
+    s.on('trafficTimingUpdate', onTrafficTimingUpdate);
+
     // AI 开关的跨页面同步由 useAiMode 内部监听，此处不再重复订阅
-    s.on('light_status_update', (data: any) => {
+    const onLightStatusUpdate = (data: any) => {
       if (!data || data.lightId == null) return;
       setTrafficLights(prev => prev.map(l => l.id === data.lightId ? {
         ...l,
@@ -97,8 +102,10 @@ const TrafficControl: React.FC = () => {
           light: { id: data.lightId, remaining_time: data.remainingTime, current_status: data.status },
         });
       }
-    });
-    s.on('vehicleFlowUpdate', (data: any) => {
+    };
+    s.on('light_status_update', onLightStatusUpdate);
+
+    const onVehicleFlowUpdate = (data: any) => {
       const normalized = Array.isArray(data)
         ? data
         : (Array.isArray(data?.batchData)
@@ -140,8 +147,16 @@ const TrafficControl: React.FC = () => {
         }
         return next
       })
-    })
-    return () => { s.close(); };
+    };
+    s.on('vehicleFlowUpdate', onVehicleFlowUpdate);
+
+    // 只解绑本页自己的监听；全局 socket 单例绝不能 close()（见 effect 开头注释）
+    return () => {
+      s.off('trafficLightUpdate', onTrafficLightUpdate)
+      s.off('trafficTimingUpdate', onTrafficTimingUpdate)
+      s.off('light_status_update', onLightStatusUpdate)
+      s.off('vehicleFlowUpdate', onVehicleFlowUpdate)
+    };
   }, []);
 
   useEffect(() => {

@@ -48,13 +48,31 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     // 复用全局 socket 单例（此前各页面各自 io()，同会话最多开 5 条连接）
+    // 注意：单例的存活由 lib/socket.ts 管理，这里【绝不能 close()】——
+    // socket.io 手动 disconnect 后 skipReconnect=true 永不自动重连，
+    // 曾因此导致红绿灯倒计时到 0s 卡死（只有刷新页面才恢复）。
     const newSocket = getSocket();
+
+    // 断线重连后（含后端 nodemon 重启）立即重拉当前路口灯态，
+    // 避免断线窗口内错过的相位切换让 worker 停留在 0s。
+    const onConnect = () => {
+      const selected = selectedIntersectionIdRef.current
+      if (selected == null) return
+      fetch(`/api/traffic-lights?intersection_id=${selected}`)
+        .then(r => r.json())
+        .then(j => {
+          if (workerRef.current) {
+            workerRef.current.postMessage({ type: 'INIT', lights: j.data || [] })
+          }
+        })
+        .catch(() => {})
+    }
 
     // 监听红绿灯状态更新
     // 注意：UI 的 `displayLights` 只由 worker 单向驱动；这里不直接 setDisplayLights，
     // 否则会和 worker 的每秒 tick 产生双源更新，导致读秒跳变（同一秒被服务端值与
     // worker 减秒同时覆盖）。
-    newSocket.on('trafficLightUpdate', (data: TrafficLight[]) => {
+    const onTrafficLightUpdate = (data: TrafficLight[]) => {
       if (!Array.isArray(data) || data.length === 0) return;
       const selected = selectedIntersectionIdRef.current
       if (selected != null && data[0].intersection_id !== selected) {
@@ -64,9 +82,10 @@ const Dashboard: React.FC = () => {
       if (workerRef.current) {
         workerRef.current.postMessage({ type: 'INIT', lights: data });
       }
-    });
+    };
+    newSocket.on('trafficLightUpdate', onTrafficLightUpdate);
 
-    newSocket.on('light_status_update', (data: any) => {
+    const onLightStatusUpdate = (data: any) => {
       if (!data || data.lightId == null) return;
       setTrafficLights(prev => prev.map(l => l.id === data.lightId ? {
         ...l,
@@ -79,10 +98,11 @@ const Dashboard: React.FC = () => {
           light: { id: data.lightId, remaining_time: data.remainingTime, current_status: data.status },
         });
       }
-    });
+    };
+    newSocket.on('light_status_update', onLightStatusUpdate);
 
     // 监听车流量更新（实时追加到趋势）
-    newSocket.on('vehicleFlowUpdate', (data: any) => {
+    const onVehicleFlowUpdate = (data: any) => {
       const normalized: VehicleFlow[] = Array.isArray(data)
         ? data
         : (Array.isArray(data?.batchData)
@@ -145,13 +165,16 @@ const Dashboard: React.FC = () => {
         // 限制窗口长度
         return next.slice(Math.max(0, next.length - 300));
       });
-    });
+    };
+    newSocket.on('vehicleFlowUpdate', onVehicleFlowUpdate);
 
     // 监听紧急情况
-    newSocket.on('emergencyMode', (status: string) => {
+    const onEmergencyMode = (status: string) => {
       setEmergencyStatus(status);
-    });
-    newSocket.on('trafficTimingUpdate', (data: any) => {
+    };
+    newSocket.on('emergencyMode', onEmergencyMode);
+
+    const onTrafficTimingUpdate = (data: any) => {
       if (aiEnabledRef.current && data?.source === 'ai') {
         setLastAiAdvice({
           intersectionId: data.intersectionId,
@@ -159,8 +182,11 @@ const Dashboard: React.FC = () => {
           reason: data.advice?.reason,
         })
       }
-    })
+    };
+    newSocket.on('trafficTimingUpdate', onTrafficTimingUpdate);
+
     // AI 开关的跨页面同步由 useAiMode 内部监听，此处不再重复订阅
+    newSocket.on('connect', onConnect);
 
     fetchInitialIntersections();
     trendStart();
@@ -173,13 +199,23 @@ const Dashboard: React.FC = () => {
         setSelectedIntersectionId(prev => prev) // 触发依赖 effect 重新拉取当前路口数据
       }
     }
-    newSocket.on('intersections:changed', () => {
+    const onIntersectionsChanged = () => {
       fetchInitialIntersections();
       if (selectedIntersectionId != null) setSelectedIntersectionId(prev => prev)
-    })
+    }
+    newSocket.on('intersections:changed', onIntersectionsChanged)
 
     return () => {
-      newSocket.close();
+      // 只解绑本页自己的监听；全局 socket 单例绝不能 close()（见 effect 开头注释）。
+      // 不解绑的话，React StrictMode 双挂载/路由往返会重复注册同一事件处理器，
+      // 导致车流趋势数据被重复累加等问题。
+      newSocket.off('connect', onConnect)
+      newSocket.off('trafficLightUpdate', onTrafficLightUpdate)
+      newSocket.off('light_status_update', onLightStatusUpdate)
+      newSocket.off('vehicleFlowUpdate', onVehicleFlowUpdate)
+      newSocket.off('emergencyMode', onEmergencyMode)
+      newSocket.off('trafficTimingUpdate', onTrafficTimingUpdate)
+      newSocket.off('intersections:changed', onIntersectionsChanged)
       bc.close();
     };
   }, []);

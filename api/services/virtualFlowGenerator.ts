@@ -1,4 +1,5 @@
 import { createRequire } from 'module'
+import * as redis from '../config/redis.js'
 
 type Direction = 'North' | 'South' | 'East' | 'West'
 type Period = '早高峰' | '午高峰' | '晚高峰' | '平峰' | '低谷'
@@ -9,7 +10,6 @@ type Movement = 'straight' | 'left'
 const directions: Direction[] = ['North', 'South', 'East', 'West']
 const require = createRequire(import.meta.url)
 const db = require('../config/database.js')
-const redis = require('../config/redis.js')
 
 function getPeriod(now: Date = new Date()): Period {
   const minutes = now.getHours() * 60 + now.getMinutes()

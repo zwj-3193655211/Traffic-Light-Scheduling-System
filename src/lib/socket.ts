@@ -19,6 +19,14 @@ export function getSocket(): Socket {
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
     })
+    return socket
+  }
+  // 自愈：socket.io 客户端手动 disconnect()/close() 后 skipReconnect 会被置 true，
+  // 之后【永远不会自动重连】（active=false），而单例变量仍非空导致后续调用方
+  // 拿到的是死连接——表现为红绿灯倒计时到 0s 后卡死，只有刷新页面才恢复。
+  // 这里检测到死连接时主动 connect() 复活（connect 会重置 skipReconnect）。
+  if (!socket.connected && !socket.active) {
+    socket.connect()
   }
   return socket
 }
