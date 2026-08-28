@@ -1,5 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Save, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
+
+import { useAiMode } from '@/hooks/useAiMode';
+import { intersectionsApi, settingsApi, type IntersectionParams } from '@/lib/api';
+import type { Intersection } from '@/types';
 
 interface SystemSettings {
   id: number;
@@ -15,17 +19,6 @@ interface SystemSettings {
   updated_at: string;
 }
 
-interface IntersectionParam {
-  intersection_id: number;
-  window_seconds: number;
-  low_flow_threshold: number;
-  min_green_floor: number;
-  arrival_straight_scale?: number;
-  arrival_left_scale?: number;
-  release_straight_scale?: number;
-  release_left_scale?: number;
-}
-
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,75 +26,56 @@ const Settings: React.FC = () => {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [intersections, setIntersections] = useState<{ id: number; name: string }[]>([]);
   const [selectedIntersection, setSelectedIntersection] = useState<number | null>(null);
-  const [params, setParams] = useState<IntersectionParam | null>(null);
-  const [aiEnabled, setAiEnabled] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [params, setParams] = useState<IntersectionParams | null>(null);
+  // AI 开关逻辑与 Dashboard / TrafficControl / Demo 共用
+  const { enabled: aiEnabled, loading: aiLoading, setEnabled: updateAiModeRaw } = useAiMode();
 
-  useEffect(() => {
-    fetchSettings();
-    fetchIntersections();
-    fetchAiMode();
-  }, []);
-
-  const fetchAiMode = async () => {
-    try {
-      const response = await fetch('/api/settings/ai-mode');
-      const json = await response.json();
-      setAiEnabled(!!json.data);
-    } catch {}
-  };
-
-  const updateAiMode = async (enabled: boolean) => {
-    try {
-      setAiLoading(true);
-      const response = await fetch('/api/settings/ai-mode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled })
-      });
-      const json = await response.json();
-      setAiEnabled(!!json.data);
-      setMessage({ type: 'success', text: `AI动态红绿灯${enabled ? '已开启' : '已关闭'}` });
-    } catch {
-      setMessage({ type: 'error', text: '更新AI模式失败' });
-    } finally {
-      setAiLoading(false);
+  const updateAiMode = useCallback(
+    async (enabled: boolean) => {
+      const ok = await updateAiModeRaw(enabled);
+      setMessage(
+        ok
+          ? { type: 'success', text: `AI动态红绿灯${enabled ? '已开启' : '已关闭'}` }
+          : { type: 'error', text: '更新AI模式失败' }
+      );
       setTimeout(() => setMessage(null), 3000);
-    }
-  };
+    },
+    [updateAiModeRaw]
+  );
 
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     try {
-      const response = await fetch('/api/settings');
-      const data = await response.json();
-      setSettings(data?.data ?? null);
+      setSettings(await settingsApi.get<SystemSettings>());
     } catch (error) {
       console.error('获取设置失败:', error);
       setMessage({ type: 'error', text: '获取设置失败' });
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchIntersections = async () => {
+  const fetchIntersections = useCallback(async () => {
     try {
-      const response = await fetch('/api/intersections');
-      const data = await response.json();
-      const list = (data.data || []).map((i: any) => ({ id: i.id, name: i.name }));
-      setIntersections(list);
-      if (list.length > 0 && selectedIntersection === null) {
-        setSelectedIntersection(list[0].id);
+      const list = (await intersectionsApi.list()) as Intersection[];
+      setIntersections(list.map((i) => ({ id: i.id, name: i.name })));
+      if (list.length > 0) {
+        setSelectedIntersection((prev) => (prev === null ? list[0].id : prev));
       }
-    } catch {}
-  };
+    } catch {
+      /* 路口列表拉取失败不阻塞设置页 */
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSettings();
+    fetchIntersections();
+  }, [fetchSettings, fetchIntersections]);
 
   useEffect(() => {
     const loadParams = async () => {
       if (selectedIntersection == null) return;
       try {
-        const res = await fetch(`/api/settings/intersection-params/${selectedIntersection}`);
-        const json = await res.json();
-        setParams(json.data);
+        setParams(await settingsApi.getIntersectionParams(selectedIntersection));
       } catch {}
     };
     loadParams();
@@ -114,45 +88,44 @@ const Settings: React.FC = () => {
     setMessage(null);
     
     try {
-      const response = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(settings),
-      });
-      
-      if (response.ok) {
-        setMessage({ type: 'success', text: '设置保存成功' });
-      } else {
-        setMessage({ type: 'error', text: '保存设置失败' });
-      }
+      await settingsApi.update(settings);
+      setMessage({ type: 'success', text: '设置保存成功' });
     } catch (error) {
       console.error('保存设置失败:', error);
       setMessage({ type: 'error', text: '保存设置失败' });
     } finally {
       setSaving(false);
     }
-    
+
     // 清除消息
     setTimeout(() => setMessage(null), 3000);
   };
 
   const handleReset = async () => {
     if (!confirm('确定要重置所有设置为默认值吗？')) return;
-    
+
     try {
-      const response = await fetch('/api/settings/reset', {
-        method: 'POST',
-      });
-      
-      if (response.ok) {
-        fetchSettings();
-        setMessage({ type: 'success', text: '设置已重置为默认值' });
-      }
+      await settingsApi.reset();
+      fetchSettings();
+      setMessage({ type: 'success', text: '设置已重置为默认值' });
     } catch (error) {
       console.error('重置设置失败:', error);
       setMessage({ type: 'error', text: '重置设置失败' });
+    }
+  };
+
+  /**
+   * 保存路口参数。页面上「路口参数」与「仿真参数」两块表单复用同一个接口，
+   * 仅成功提示文案不同，故统一在此处理。
+   */
+  const handleSaveParams = async (successText: string) => {
+    if (!params) return;
+    try {
+      await settingsApi.updateIntersectionParams(params.intersection_id, params);
+      setMessage({ type: 'success', text: successText });
+    } catch (error) {
+      console.error('保存路口参数失败:', error);
+      setMessage({ type: 'error', text: '保存失败' });
     }
   };
 
@@ -357,21 +330,7 @@ const Settings: React.FC = () => {
                   <div className="flex justify-end">
                     <button
                       onClick={async () => {
-                        if (!params) return;
-                        try {
-                          const resp = await fetch(`/api/settings/intersection-params/${params.intersection_id}`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(params),
-                          });
-                          if (resp.ok) {
-                            setMessage({ type: 'success', text: '路口参数已保存' });
-                          } else {
-                            setMessage({ type: 'error', text: '保存失败' });
-                          }
-                        } catch {
-                          setMessage({ type: 'error', text: '保存失败' });
-                        }
+                        await handleSaveParams('路口参数已保存');
                       }}
                       className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                     >
@@ -460,21 +419,7 @@ const Settings: React.FC = () => {
                   <div className="flex justify-end pt-4">
                     <button
                       onClick={async () => {
-                        if (!params) return;
-                        try {
-                          const resp = await fetch(`/api/settings/intersection-params/${params.intersection_id}`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(params),
-                          });
-                          if (resp.ok) {
-                            setMessage({ type: 'success', text: '仿真参数已更新' });
-                          } else {
-                            setMessage({ type: 'error', text: '更新失败' });
-                          }
-                        } catch {
-                          setMessage({ type: 'error', text: '更新失败' });
-                        }
+                        await handleSaveParams('仿真参数已更新');
                       }}
                       className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
                     >

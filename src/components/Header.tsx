@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, User, AlertTriangle, Clock, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
-import { io, Socket } from 'socket.io-client';
+
+import { authApi } from '@/lib/api';
+import { getSocket } from '@/lib/socket';
 
 const Header: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [emergencyMode, setEmergencyMode] = useState(false);
   const [notifications, setNotifications] = useState(0);
-  const [socket, setSocket] = useState<Socket | null>(null);
   const [showProfile, setShowProfile] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState('');
@@ -20,20 +21,19 @@ const Header: React.FC = () => {
       setCurrentTime(new Date());
     }, 1000);
 
-    // 连接WebSocket
-    const newSocket = io();
-    setSocket(newSocket);
+    // 复用全局 socket 单例
+    const socket = getSocket();
 
-    newSocket.on('emergencyMode', (data) => {
+    socket.on('emergencyMode', (data) => {
       setEmergencyMode(data === 'emergency');
     });
-
 
     const savedAvatar = localStorage.getItem('user_avatar');
     if (savedAvatar) setAvatarPreview(savedAvatar);
     return () => {
       clearInterval(timer);
-      newSocket.close();
+      // 单例 socket 不在此关闭，否则会影响其他页面的实时推送；仅解绑本组件监听
+      socket.off('emergencyMode');
     };
   }, []);
 
@@ -104,11 +104,7 @@ const Header: React.FC = () => {
               onClick={async () => {
                 const token = localStorage.getItem('auth_token')
                 if (token) {
-                  await fetch('/api/auth/logout', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ token })
-                  }).catch(() => {})
+                  await authApi.logout(token).catch(() => {})
                 }
                 localStorage.removeItem('auth_token');
                 window.location.href = '/login';

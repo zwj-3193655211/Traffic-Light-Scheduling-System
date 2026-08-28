@@ -1,18 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-interface Intersection {
-  id: number;
-  name: string;
-  latitude: number;
-  longitude: number;
-  status: number | string;
-  created_at: string;
-  updated_at: string;
-  next_north_id?: number | null;
-  next_south_id?: number | null;
-  next_east_id?: number | null;
-  next_west_id?: number | null;
-}
+import type { Intersection } from '@/types';
 
 type IntersectionFormData = {
   name: string;

@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import io from 'socket.io-client';
 import IntersectionMonitor from '../components/IntersectionMonitor';
 import FlowDots from '../components/FlowDots';
 import type { Direction, LightState, Phase, Step } from '../sim/core';
 import { useTrendEngine } from '../stores/trendEngine';
 import { getTrafficPeriod } from '../lib/utils';
+import { useAiMode } from '@/hooks/useAiMode';
+import { getSocket } from '@/lib/socket';
+import type { AiAdvice, Intersection, TrafficLight, VehicleFlow } from '@/types';
 
 // P2.5.2 AI 健康面板的单指标卡片
 const MetricCard: React.FC<{ label: string; value: string; tone?: 'ok' | 'warn' }> = ({ label, value, tone }) => (
@@ -14,43 +16,6 @@ const MetricCard: React.FC<{ label: string; value: string; tone?: 'ok' | 'warn' 
     <p className={`text-lg font-semibold ${tone === 'warn' ? 'text-amber-600' : 'text-gray-900'}`}>{value}</p>
   </div>
 );
-
-interface TrafficLight {
-  id: number;
-  intersection_id: number;
-  direction: string;
-  movement_type?: string;
-  current_status: number; // 0:red,1:yellow,2:green
-  remaining_time: number;
-  default_green_time: number;
-  default_red_time: number;
-  default_yellow_time: number;
-}
-
-interface VehicleFlow {
-  id: number;
-  intersection_id: number;
-  direction: string;
-  vehicle_count: number;
-  straight_count?: number;
-  left_count?: number;
-  average_speed: number;
-  timestamp: string;
-}
-
-interface Intersection {
-  id: number;
-  name: string;
-  latitude: number;
-  longitude: number;
-  status: number | string;
-  created_at: string;
-  updated_at: string;
-  next_north_id?: number | null;
-  next_south_id?: number | null;
-  next_east_id?: number | null;
-  next_west_id?: number | null;
-}
 
 const Dashboard: React.FC = () => {
   const [trafficLights, setTrafficLights] = useState<TrafficLight[]>([]);
@@ -62,30 +27,28 @@ const Dashboard: React.FC = () => {
   const [intersections, setIntersections] = useState<Intersection[]>([]);
   const [selectedIntersectionId, setSelectedIntersectionId] = useState<number | null>(null);
   const selectedIntersectionIdRef = useRef<number | null>(null);
-  const [socket, setSocket] = useState<any>(null);
   const [emergencyStatus, setEmergencyStatus] = useState<string>('normal');
   const workerRef = useRef<Worker | null>(null);
   const trendStoreData = useTrendEngine(s => s.trendData)
   const trendStart = useTrendEngine(s => s.start)
   const trendSetIntersection = useTrendEngine(s => s.setIntersection)
-  const [aiEnabled, setAiEnabled] = useState(false)
-  const [lastAiAdvice, setLastAiAdvice] = useState<{ intersectionId: number; green: number; reason?: string } | null>(null)
-  const aiEnabledRef = useRef(aiEnabled)
+  // AI 开关：拉取、提交、跨页面广播同步统一由 hook 处理
+  const { enabled: aiEnabled, setEnabled: updateAiMode, enabledRef: aiEnabledRef } = useAiMode()
+  const [lastAiAdvice, setLastAiAdvice] = useState<AiAdvice | null>(null)
   const [queueSnapshot, setQueueSnapshot] = useState<Record<Direction, number>>({ North: 0, South: 0, East: 0, West: 0 })
   const [queueSnapshotSplit, setQueueSnapshotSplit] = useState<{ straight: Record<Direction, number>; left: Record<Direction, number> } | null>(null)
 
   useEffect(() => {
     selectedIntersectionIdRef.current = selectedIntersectionId
   }, [selectedIntersectionId])
+  // 关闭 AI 时清空上一次建议，避免展示过期数据
   useEffect(() => {
-    aiEnabledRef.current = aiEnabled
     if (!aiEnabled) setLastAiAdvice(null)
   }, [aiEnabled])
 
   useEffect(() => {
-    // 初始化WebSocket连接
-    const newSocket = io();
-    setSocket(newSocket);
+    // 复用全局 socket 单例（此前各页面各自 io()，同会话最多开 5 条连接）
+    const newSocket = getSocket();
 
     // 监听红绿灯状态更新
     // 注意：UI 的 `displayLights` 只由 worker 单向驱动；这里不直接 setDisplayLights，
@@ -197,12 +160,7 @@ const Dashboard: React.FC = () => {
         })
       }
     })
-    // 监听 AI 开关跨页面同步
-    newSocket.on('aiModeChanged', (data: any) => {
-      if (data && typeof data.enabled === 'boolean') {
-        setAiEnabled(data.enabled)
-      }
-    })
+    // AI 开关的跨页面同步由 useAiMode 内部监听，此处不再重复订阅
 
     fetchInitialIntersections();
     trendStart();
@@ -279,27 +237,6 @@ const Dashboard: React.FC = () => {
     } catch (error) {
       console.error('获取初始数据失败:', error);
     }
-  };
-
-  const fetchAiMode = async () => {
-    try {
-      const response = await fetch('/api/settings/ai-mode');
-      const json = await response.json();
-      setAiEnabled(!!json.data);
-    } catch {}
-  };
-  useEffect(() => { fetchAiMode() }, [])
-
-  const updateAiMode = async (enabled: boolean) => {
-    try {
-      const response = await fetch('/api/settings/ai-mode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled })
-      });
-      const json = await response.json();
-      setAiEnabled(!!json.data);
-    } catch {}
   };
 
   useEffect(() => {

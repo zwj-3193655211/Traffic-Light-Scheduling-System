@@ -1,39 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react'
-import io from 'socket.io-client'
 import IntersectionMonitor from '../components/IntersectionMonitor'
 import type { Direction, LightState, Phase, Step } from '../sim/core'
 import { getTrafficPeriod } from '../lib/utils'
-
-interface TrafficLightRow {
-  id: number
-  intersection_id: number
-  direction: string
-  movement_type?: string
-  current_status: number
-  remaining_time: number
-  default_green_time: number
-  default_red_time: number
-  default_yellow_time: number
-}
-
-interface VehicleFlowRow {
-  id: number
-  intersection_id: number
-  direction: string
-  vehicle_count: number
-  straight_count?: number
-  left_count?: number
-  timestamp: string
-}
+import { useAiMode } from '@/hooks/useAiMode'
+import { getSocket } from '@/lib/socket'
+import type { AiAdvice, TrafficLight, VehicleFlow } from '@/types'
 
 const Demo: React.FC = () => {
   const [intersections, setIntersections] = useState<Array<{ id: number; name: string }>>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const selectedIdRef = useRef<number | null>(null)
-  const [trafficLights, setTrafficLights] = useState<TrafficLightRow[]>([])
-  const [aiEnabled, setAiEnabled] = useState(false)
-  const [lastAiAdvice, setLastAiAdvice] = useState<{ intersectionId: number; green: number; reason?: string } | null>(null)
-  const aiEnabledRef = useRef(aiEnabled)
+  const [trafficLights, setTrafficLights] = useState<TrafficLight[]>([])
+  // AI 开关：拉取、提交、跨页面广播同步统一由 hook 处理
+  const { enabled: aiEnabled, setEnabled: updateAiMode, enabledRef: aiEnabledRef } = useAiMode()
+  const [lastAiAdvice, setLastAiAdvice] = useState<AiAdvice | null>(null)
   const [queueSnapshot, setQueueSnapshot] = useState<Record<Direction, number>>({ North: 0, South: 0, East: 0, West: 0 })
   const [queueSnapshotSplit, setQueueSnapshotSplit] = useState<{ straight: Record<Direction, number>; left: Record<Direction, number> } | null>(null)
   const [arrivalStraightScale, setArrivalStraightScale] = useState<number>(parseFloat(((import.meta as any).env?.VITE_DEMO_ARRIVAL_SCALE_STRAIGHT) || '0.3'))
@@ -45,8 +25,8 @@ const Demo: React.FC = () => {
   useEffect(() => {
     selectedIdRef.current = selectedId
   }, [selectedId])
+  // 关闭 AI 时清空上一次建议，避免展示过期数据
   useEffect(() => {
-    aiEnabledRef.current = aiEnabled
     if (!aiEnabled) setLastAiAdvice(null)
   }, [aiEnabled])
 
@@ -80,7 +60,7 @@ const Demo: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    const s = io()
+    const s = getSocket()
 
     s.on('trafficLightUpdate', (data: any) => {
       const selected = selectedIdRef.current
@@ -93,7 +73,7 @@ const Demo: React.FC = () => {
     })
 
     s.on('vehicleFlowUpdate', (data: any) => {
-      const normalized: VehicleFlowRow[] = Array.isArray(data)
+      const normalized: VehicleFlow[] = Array.isArray(data)
         ? data
         : (Array.isArray(data?.batchData)
           ? data.batchData.map((it: any, idx: number) => ({
@@ -147,36 +127,9 @@ const Demo: React.FC = () => {
       }
     })
 
-    // 监听 AI 开关跨页面同步
-    s.on('aiModeChanged', (data: any) => {
-      if (data && typeof data.enabled === 'boolean') {
-        setAiEnabled(data.enabled)
-      }
-    })
-
-    return () => { s.close() }
+    // AI 开关的跨页面同步由 useAiMode 内部监听，此处不再重复订阅
+    // 注意：socket 为全局单例，此处不能 close/disconnect，否则会影响其他页面的实时推送
   }, [])
-
-  const fetchAiMode = async () => {
-    try {
-      const response = await fetch('/api/settings/ai-mode')
-      const json = await response.json()
-      setAiEnabled(!!json.data)
-    } catch {}
-  }
-  useEffect(() => { fetchAiMode() }, [])
-
-  const updateAiMode = async (enabled: boolean) => {
-    try {
-      const response = await fetch('/api/settings/ai-mode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled })
-      })
-      const json = await response.json()
-      setAiEnabled(!!json.data)
-    } catch {}
-  }
 
   useEffect(() => {
     if (selectedId == null) return

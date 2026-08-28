@@ -1,22 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-interface EmergencyVehicle {
-  id: number;
-  intersection_id: number;
-  vehicle_type: 'ambulance' | 'fire_truck' | 'police' | 'other';
-  vehicle_id: string;
-  priority_level: 1 | 2 | 3 | 4 | 5;
-  direction: 'North' | 'South' | 'East' | 'West';
-  status: number; // 0-等待,1-已通过,2-已取消
-  estimated_arrival?: string;
-  created_at?: string;
-}
-
-interface TrafficLight {
-  id: number;
-  direction: string;
-  current_status: number; // 0:red,1:yellow,2:green
-}
+import type { EmergencyVehicle, TrafficLight } from '@/types';
 
 const EmergencyManagement: React.FC = () => {
   const [emergencyVehicles, setEmergencyVehicles] = useState<EmergencyVehicle[]>([]);

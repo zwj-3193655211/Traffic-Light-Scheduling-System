@@ -1,44 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { io, Socket } from 'socket.io-client';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { ArrowLeft, Settings, AlertTriangle, Play, Pause, RotateCcw } from 'lucide-react';
 
-interface Intersection {
-  id: number;
-  name: string;
-  coordinates?: string;
-  status: 'active' | 'inactive' | 'maintenance' | number | string;
-  current_phase: number;
-  cycle_length: number;
-  created_at: string;
-  updated_at: string;
-  next_north_id?: number | null;
-  next_south_id?: number | null;
-  next_east_id?: number | null;
-  next_west_id?: number | null;
-  next_north_name?: string | null;
-  next_south_name?: string | null;
-  next_east_name?: string | null;
-  next_west_name?: string | null;
-}
-
-interface TrafficLight {
-  id: number;
-  intersection_id: number;
-  direction: string;
-  status: number | 'red' | 'yellow' | 'green';
-  duration: number;
-  created_at: string;
-}
-
-interface VehicleFlow {
-  id: number;
-  intersection_id: number;
-  direction: string;
-  vehicle_count: number;
-  timestamp: string;
-}
+import { getSocket } from '@/lib/socket';
+import type { Intersection, TrafficLight, VehicleFlow } from '@/types';
 
 const IntersectionDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -48,7 +14,6 @@ const IntersectionDetail: React.FC = () => {
   const [vehicleFlows, setVehicleFlows] = useState<VehicleFlow[]>([]);
   const [flowHistory, setFlowHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [socket, setSocket] = useState<Socket | null>(null);
   const [isAutoMode, setIsAutoMode] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [editIntersection, setEditIntersection] = useState<Partial<Intersection>>({});
@@ -58,15 +23,16 @@ const IntersectionDetail: React.FC = () => {
     fetchTrafficLights();
     fetchVehicleFlows();
     
-    const newSocket = io();
-    setSocket(newSocket);
-
-    newSocket.on('trafficLightUpdate', () => {
+    // 复用全局 socket 单例
+    const socket = getSocket();
+    const onTrafficLightUpdate = () => {
       fetchTrafficLights();
-    });
+    };
+    socket.on('trafficLightUpdate', onTrafficLightUpdate);
 
     return () => {
-      newSocket.close();
+      // 单例 socket 不在此关闭，否则会影响其他页面的实时推送；仅解绑本组件监听
+      socket.off('trafficLightUpdate', onTrafficLightUpdate);
     };
   }, [id]);
   const fetchIntersectionDetails = async () => {

@@ -1,41 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import io from 'socket.io-client';
 import IntersectionMonitor from '../components/IntersectionMonitor';
 import type { Direction, LightState, Phase, Step } from '../sim/core';
 import { getTrafficPeriod } from '../lib/utils';
-
-interface TrafficLightRow {
-  id: number;
-  intersection_id: number;
-  direction: string;
-  movement_type?: string;
-  current_status: number; // 0:red,1:yellow,2:green
-  remaining_time: number;
-  default_green_time: number;
-  default_red_time: number;
-  default_yellow_time: number;
-}
-
-interface IntersectionRow {
-  id: number;
-  name: string;
-  latitude: number;
-  longitude: number;
-  status: number | string;
-}
+import { useAiMode } from '@/hooks/useAiMode';
+import { getSocket } from '@/lib/socket';
+import type { AiAdvice, Intersection, TrafficLight } from '@/types';
 
 const TrafficControl: React.FC = () => {
-  const [trafficLights, setTrafficLights] = useState<TrafficLightRow[]>([]);
-  const [displayLights, setDisplayLights] = useState<TrafficLightRow[]>([]);
+  const [trafficLights, setTrafficLights] = useState<TrafficLight[]>([]);
+  const [displayLights, setDisplayLights] = useState<TrafficLight[]>([]);
   const workerRef = useRef<Worker | null>(null);
-  const [intersections, setIntersections] = useState<IntersectionRow[]>([]);
+  const [intersections, setIntersections] = useState<Intersection[]>([]);
   const [selectedIntersection, setSelectedIntersection] = useState<number | null>(null);
   const selectedIntersectionRef = useRef<number | null>(selectedIntersection);
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState('');
-  const [aiEnabled, setAiEnabled] = useState(false);
-  const [lastAiAdvice, setLastAiAdvice] = useState<{ intersectionId: number; green: number; reason?: string } | null>(null);
-  const aiEnabledRef = useRef(aiEnabled)
+  // AI 开关：拉取、提交、跨页面广播同步统一由 hook 处理
+  const { enabled: aiEnabled, setEnabled: updateAiMode, enabledRef: aiEnabledRef } = useAiMode();
+  const [lastAiAdvice, setLastAiAdvice] = useState<AiAdvice | null>(null);
   const [queueSnapshot, setQueueSnapshot] = useState<Record<Direction, number>>({ North: 0, South: 0, East: 0, West: 0 })
   const [queueSnapshotSplit, setQueueSnapshotSplit] = useState<{ straight: Record<Direction, number>; left: Record<Direction, number> } | null>(null)
   const [intersectionMeta, setIntersectionMeta] = useState<{ auto_mode: number; current_phase: number } | null>(null)
@@ -43,8 +25,8 @@ const TrafficControl: React.FC = () => {
   useEffect(() => {
     selectedIntersectionRef.current = selectedIntersection
   }, [selectedIntersection])
+  // 关闭 AI 时清空上一次建议，避免展示过期数据
   useEffect(() => {
-    aiEnabledRef.current = aiEnabled
     if (!aiEnabled) setLastAiAdvice(null)
   }, [aiEnabled])
 
@@ -81,7 +63,7 @@ const TrafficControl: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const s = io();
+    const s = getSocket();
     // UI 的 displayLights 只由 worker 驱动，避免双源更新导致读秒跳变
     s.on('trafficLightUpdate', (data: any) => {
       if (!Array.isArray(data) || data.length === 0) return;
@@ -101,12 +83,7 @@ const TrafficControl: React.FC = () => {
         });
       }
     });
-    // 监听 AI 开关跨页面同步
-    s.on('aiModeChanged', (data: any) => {
-      if (data && typeof data.enabled === 'boolean') {
-        setAiEnabled(data.enabled);
-      }
-    });
+    // AI 开关的跨页面同步由 useAiMode 内部监听，此处不再重复订阅
     s.on('light_status_update', (data: any) => {
       if (!data || data.lightId == null) return;
       setTrafficLights(prev => prev.map(l => l.id === data.lightId ? {
@@ -208,14 +185,6 @@ const TrafficControl: React.FC = () => {
     }
   }, [selectedIntersection]);
 
-  const fetchAiMode = async () => {
-    try {
-      const response = await fetch('/api/settings/ai-mode');
-      const json = await response.json();
-      setAiEnabled(!!json.data);
-    } catch {}
-  };
-
   const fetchIntersectionMeta = async () => {
     try {
       if (selectedIntersection == null) return
@@ -231,28 +200,13 @@ const TrafficControl: React.FC = () => {
     } catch {}
   }
 
-  useEffect(() => {
-    fetchAiMode();
-  }, []);
-
-  const updateAiMode = async (enabled: boolean) => {
-    try {
-      setIsLoading(true);
-      const response = await fetch('/api/settings/ai-mode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled })
-      });
-      const json = await response.json();
-      setAiEnabled(!!json.data);
-      setMessage(`AI动态红绿灯${enabled ? '已开启' : '已关闭'}`);
-      setTimeout(() => setMessage(''), 3000);
-    } catch {
-      setMessage('更新AI模式失败');
-      setTimeout(() => setMessage(''), 3000);
-    } finally {
-      setIsLoading(false);
-    }
+  /** 包装 hook 的 setEnabled，补上本页的操作反馈 */
+  const handleAiModeChange = async (enabled: boolean) => {
+    setIsLoading(true);
+    const ok = await updateAiMode(enabled);
+    setMessage(ok ? `AI动态红绿灯${enabled ? '已开启' : '已关闭'}` : '更新AI模式失败');
+    setTimeout(() => setMessage(''), 3000);
+    setIsLoading(false);
   };
 
   const fetchTrafficLights = async () => {
@@ -570,7 +524,7 @@ const TrafficControl: React.FC = () => {
             <input
               type="checkbox"
               checked={aiEnabled}
-              onChange={(e) => updateAiMode(e.target.checked)}
+              onChange={(e) => handleAiModeChange(e.target.checked)}
               className="mr-2"
             />
             <span className="text-sm text-gray-700">开启AI动态红绿灯</span>
