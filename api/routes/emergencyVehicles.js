@@ -1,7 +1,7 @@
-const express = require('express');
+import express from 'express';
 const router = express.Router();
-const { pool } = require('../config/database');
-const { setCache, getCache, publishMessage } = require('../config/redis');
+import { pool } from '../config/database.js';
+import { setCache, getCache, publishMessage } from '../config/redis.js';
 
 // 报告紧急车辆
 router.post('/report', async (req, res) => {
@@ -661,4 +661,4 @@ router.post('/:id/complete', async (req, res) => {
     }
 });
 
-module.exports = router;
+export default router;

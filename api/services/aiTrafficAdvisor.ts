@@ -1,12 +1,23 @@
 // AI 动态红绿灯顾问
-// 已弃用 Ollama（本地推理）。现统一走 OpenAI 兼容的 Chat Completions 协议，
-// 默认接入 DeepSeek（DEEPSEEK_MODEL，例如 deepseek-v4-flash）。
-// 智谱 GLM 作为备选 provider 保留（同样兼容 OpenAI 协议）。
 //
-// 切换方式：仅改 .env 的 AI_PROVIDER，无需改动业务代码。
+// 统一走 OpenAI 兼容的 Chat Completions 协议，支持云端与本地两种模式共存：
+//   deepseek  —— DeepSeek 云端 API（默认）
+//   zhipu     —— 智谱 GLM 云端 API
+//   llamacpp  —— 本地 llama.cpp（llama-server），离线可用、免密钥
+//
+// 切换方式：仅改 .env，无需改动业务代码。
 //   AI_PROVIDER=deepseek  + DEEPSEEK_API_KEY + DEEPSEEK_MODEL
-//   AI_PROVIDER=zhipu      + GLM_API_KEY      + GLM_MODEL
+//   AI_PROVIDER=zhipu     + GLM_API_KEY      + GLM_MODEL
+//   AI_PROVIDER=llamacpp  + LLAMACPP_BASE_URL(默认 http://127.0.0.1:8080/v1)
 //
+// 双模式互为备份（可选）：
+//   AI_FALLBACK_PROVIDER=deepseek 表示本地 llamacpp 失败时自动走 DeepSeek，
+//   反之 AI_PROVIDER=deepseek + AI_FALLBACK_PROVIDER=llamacpp 亦可。
+//   两者都不可用时，由上层退回规则配时（ruleBasedTiming），系统始终可用。
+//
+// 启动 llama.cpp 服务示例：
+//   llama-server -m model.gguf -c 4096 --host 127.0.0.1 --port 8080
+
 // 优化（见 docs/AI优化设计.md）：
 //  - reason 可解释：返回 { green, reason }，供前端/广播展示与审计。
 //  - 运行时热切换模型：setModelOverride() 由 server 从 Redis system:ai_model 读取后设置。
@@ -33,11 +44,23 @@ export type Constraints = {
 }
 
 // ---- Provider 注册表（均为 OpenAI 兼容协议）----
+//
+// 支持的三种模式：
+//   deepseek  —— 云端 API，延迟低、无需本地算力，需要 DEEPSEEK_API_KEY
+//   zhipu     —— 云端备选（智谱 GLM）
+//   llamacpp  —— 本地 llama.cpp 的 llama-server，离线可用、免密钥，但推理较慢且 JSON 依从性较弱
+//
+// 关键点：llama.cpp 的 llama-server 原生暴露 OpenAI 兼容端点（/v1/chat/completions），
+// 因此本地模式不需要第二套协议实现，只需切换 baseURL / model 即可，
+// 仅在默认超时上对本地推理做差异化（CPU 推理可能达数十秒）。
 type ProviderConfig = {
   label: string
   baseURL: string
   apiKeyEnv: string
   defaultModel: string
+  /** 本地推理（llama.cpp）免密钥，云端 provider 缺失密钥时快速失败并给出明确提示 */
+  requiresApiKey: boolean
+  defaultTimeoutMs: number
 }
 
 const PROVIDERS: Record<string, ProviderConfig> = {
@@ -45,19 +68,39 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     label: 'DeepSeek',
     baseURL: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com/chat/completions',
     apiKeyEnv: 'DEEPSEEK_API_KEY',
-    defaultModel: process.env.DEEPSEEK_MODEL ?? 'deepseek-v4-flash'
+    defaultModel: process.env.DEEPSEEK_MODEL ?? 'deepseek-chat',
+    requiresApiKey: true,
+    defaultTimeoutMs: 12_000,
   },
   zhipu: {
     label: '智谱 GLM',
     baseURL: process.env.GLM_BASE_URL ?? 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
     apiKeyEnv: 'GLM_API_KEY',
-    defaultModel: process.env.GLM_MODEL ?? 'glm-4-flash'
-  }
+    defaultModel: process.env.GLM_MODEL ?? 'glm-4-flash',
+    requiresApiKey: true,
+    defaultTimeoutMs: 12_000,
+  },
+  llamacpp: {
+    label: 'llama.cpp(本地)',
+    baseURL: process.env.LLAMACPP_BASE_URL ?? 'http://127.0.0.1:8080/v1',
+    apiKeyEnv: 'LLAMACPP_API_KEY',
+    defaultModel: process.env.LLAMACPP_MODEL ?? 'local-gguf',
+    requiresApiKey: false,
+    defaultTimeoutMs: 60_000,
+  },
 }
 
 const providerName = (process.env.AI_PROVIDER ?? 'deepseek').toLowerCase()
 const provider: ProviderConfig = PROVIDERS[providerName] ?? PROVIDERS.deepseek
-const model = provider.defaultModel
+
+/**
+ * 备用 provider：主 provider 不可用（超时 / 熔断 / 本地服务未启动）时自动接管。
+ * 典型用法：AI_PROVIDER=llamacpp + AI_FALLBACK_PROVIDER=deepseek，
+ * 本地离线优先、云端兜底，两种模式互为备份。
+ */
+const fallbackName = (process.env.AI_FALLBACK_PROVIDER ?? '').toLowerCase().trim()
+const fallbackProvider: ProviderConfig | null =
+  fallbackName && fallbackName !== providerName ? PROVIDERS[fallbackName] ?? null : null
 
 // 运行时模型覆盖（由 server 从 Redis system:ai_model 读取后设置，实现不重启切换模型）
 let modelOverride: string | null = null
@@ -65,8 +108,12 @@ export function setModelOverride(m: string | null) {
   const t = m ? String(m).trim() : ''
   modelOverride = t ? t : null
 }
-function effectiveModel(): string {
-  return modelOverride || model
+/**
+ * 生效模型名。必须按 provider 解析：本地 llama.cpp 与云端 DeepSeek 的模型名不通用，
+ * 否则回退到备用 provider 时会把 "local-gguf" 发给云端导致 model not found。
+ */
+function effectiveModel(p: ProviderConfig = provider): string {
+  return modelOverride || p.defaultModel
 }
 
 // ---- 熔断器（Circuit Breaker）----
@@ -214,19 +261,24 @@ async function postChatCompletions(
   throw lastErr ?? new Error('AI 请求失败')
 }
 
-export async function getAdvice(
+/** 模型明确答复"不建议调整"：这是有效响应而非失败，不应触发备用 provider 或降级 */
+const AI_NO_CHANGE = 'AI建议不调整'
+
+/**
+ * 对单个 provider 执行一次完整调用：构造提示 -> 请求 -> 解析 -> 约束夹紧。
+ * 熔断器与指标埋点在本函数内部维护。
+ */
+async function requestAdvice(
+  p: ProviderConfig,
   ctx: AiContext,
   constraints: Constraints,
   abortSignal?: AbortSignal
 ): Promise<AiAdvice> {
-  const now = Date.now()
-  if (!cbAllow(now)) {
-    metrics.circuitOpenSkips++
-    throw new Error('AI熔断器开启(OPEN)，走规则降级')
+  const url = resolveEndpoint(p.baseURL)
+  const apiKey = (process.env[p.apiKeyEnv] ?? '').trim()
+  if (p.requiresApiKey && !apiKey) {
+    throw new Error(`未配置 ${p.apiKeyEnv}，provider=${p.label} 不可用`)
   }
-
-  const url = resolveEndpoint(provider.baseURL)
-  const apiKey = (process.env[provider.apiKeyEnv] ?? '').trim()
   const stats = ctx.stats as any
   const fmt = stats.formattedStats || {}
   const directions = ['North', 'South', 'East', 'West']
@@ -253,7 +305,7 @@ export async function getAdvice(
   ].join('\n')
 
   console.log('============== [AI Request] ==============')
-  console.log(`[AI] provider=${provider.label} model=${effectiveModel()} intersection=${ctx.intersectionId}${cbHalfOpen ? ' (HALF_OPEN probe)' : ''}`)
+  console.log(`[AI] provider=${p.label} model=${effectiveModel(p)} intersection=${ctx.intersectionId}${cbHalfOpen ? ' (HALF_OPEN probe)' : ''}`)
   console.log('==========================================')
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -264,7 +316,8 @@ export async function getAdvice(
     { role: 'user', content: userPrompt }
   ]
 
-  const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS || '12000')
+  // 显式配置 AI_TIMEOUT_MS 优先，否则用 provider 默认值（本地 llama.cpp 需要更长）
+  const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS || String(p.defaultTimeoutMs))
   const startedAt = Date.now()
   metrics.calls++
 
@@ -273,7 +326,7 @@ export async function getAdvice(
     res = await postChatCompletions(
       url,
       headers,
-      { model: effectiveModel(), messages, stream: false, temperature: 0.2 },
+      { model: effectiveModel(p), messages, stream: false, temperature: 0.2 },
       timeoutMs,
       abortSignal
     )
@@ -337,7 +390,7 @@ export async function getAdvice(
     metrics.successes++
     metrics.lastLatencyMs = Date.now() - startedAt
     metrics.totalLatencyMs += metrics.lastLatencyMs
-    throw new Error('AI建议不调整')
+    throw new Error(AI_NO_CHANGE)
   }
   const normalized = greenText.toLowerCase().endsWith('s')
     ? greenText.slice(0, -1).trim()
@@ -353,7 +406,7 @@ export async function getAdvice(
     metrics.successes++
     metrics.lastLatencyMs = Date.now() - startedAt
     metrics.totalLatencyMs += metrics.lastLatencyMs
-    throw new Error('AI建议不调整')
+    throw new Error(AI_NO_CHANGE)
   }
 
   cbOnSuccess()
@@ -363,5 +416,54 @@ export async function getAdvice(
   return clampAdvice({ green: greenVal, reason }, constraints)
 }
 
-export const aiTrafficAdvisor = { getAdvice, getAdvisorMetrics }
+/**
+ * 对外入口：先走主 provider，失败时自动切换到备用 provider。
+ *
+ * 这样"本地 llama.cpp 优先 + 云端 DeepSeek 兜底"（或反过来）只靠环境变量组合，
+ * 业务代码无需感知当前跑在哪种模式下。
+ */
+export async function getAdvice(
+  ctx: AiContext,
+  constraints: Constraints,
+  abortSignal?: AbortSignal
+): Promise<AiAdvice> {
+  const now = Date.now()
+  if (!cbAllow(now)) {
+    metrics.circuitOpenSkips++
+    throw new Error('AI熔断器开启(OPEN)，走规则降级')
+  }
+
+  try {
+    return await requestAdvice(provider, ctx, constraints, abortSignal)
+  } catch (err: any) {
+    // "不建议调整"是模型的有效答复，不是故障，无需回退
+    if (err?.message === AI_NO_CHANGE || !fallbackProvider) throw err
+
+    console.warn(
+      `[AI] 主 provider=${provider.label} 调用失败，切换备用 provider=${fallbackProvider.label}（原因：${err?.message}）`
+    )
+    try {
+      return await requestAdvice(fallbackProvider, ctx, constraints, abortSignal)
+    } catch {
+      // 两者都失败时抛出主 provider 的错误，便于定位首选链路的问题
+      throw err
+    }
+  }
+}
+
+export const aiTrafficAdvisor = {
+  getAdvice,
+  getAdvisorMetrics,
+  /** 供健康面板展示当前生效的 provider 组合 */
+  describeProvider: () => ({
+    provider: providerName,
+    label: provider.label,
+    model: effectiveModel(),
+    endpoint: resolveEndpoint(provider.baseURL),
+    fallback: fallbackProvider
+      ? { provider: fallbackName, label: fallbackProvider.label }
+      : null,
+  }),
+}
+
 export const clampAdviceForTest = clampAdvice

@@ -1,7 +1,7 @@
-const express = require('express');
+import express from 'express';
 const router = express.Router();
-const { pool } = require('../config/database');
-const { setCache, getCache, deleteCache } = require('../config/redis');
+import { pool } from '../config/database.js';
+import { setCache, getCache, deleteCache, publishMessage } from '../config/redis.js';
 
 // 获取系统设置
 router.get('/', async (req, res) => {
@@ -244,7 +244,6 @@ router.post('/ai-mode', async (req, res) => {
         await setCache('system:ai_mode', enabled ? '1' : '0', 24 * 3600);
         // 通知所有页面（Dashboard / TrafficControl / Demo）AI 开关状态变化
         try {
-            const { publishMessage } = require('../config/redis');
             await publishMessage('settings:ai_mode_changed', { enabled: !!enabled, ts: Date.now() });
         } catch {}
         res.json({ success: true, message: 'AI模式已更新', data: !!enabled });
@@ -273,7 +272,6 @@ router.post('/ai-model', async (req, res) => {
         const m = String(model).trim();
         await setCache('system:ai_model', m, 24 * 3600);
         try {
-            const { publishMessage } = require('../config/redis');
             await publishMessage('settings:ai_model_changed', { model: m, ts: Date.now() });
         } catch {}
         res.json({ success: true, message: 'AI模型已更新', data: m });
@@ -416,4 +414,4 @@ router.put('/intersection-params/:intersectionId', async (req, res) => {
     }
 });
 
-module.exports = router;
+export default router;

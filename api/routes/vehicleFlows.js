@@ -1,7 +1,7 @@
-const express = require('express');
+import express from 'express';
 const router = express.Router();
-const { pool } = require('../config/database');
-const { setCache, getCache, publishMessage } = require('../config/redis');
+import { pool } from '../config/database.js';
+import { setCache, getCache, publishMessage } from '../config/redis.js';
 
 // 获取实时流量数据
 router.get('/realtime/:intersectionId', async (req, res) => {
@@ -724,4 +724,4 @@ router.get('/intersection/:intersectionId', async (req, res) => {
     }
 });
 
-module.exports = router;
+export default router;

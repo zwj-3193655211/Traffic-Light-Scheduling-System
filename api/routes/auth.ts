@@ -4,12 +4,10 @@
  */
 import { Router, type Request, type Response } from 'express'
 import crypto from 'crypto'
-import { createRequire } from 'module'
+
+import { pool } from '../config/database.js'
 
 const router = Router()
-const require = createRequire(import.meta.url)
-const db = require('../config/database.js')
-const pool = db.pool as any
 
 function pbkdf2Hash(password: string, salt: Buffer) {
   return crypto.pbkdf2Sync(password, salt, 120_000, 64, 'sha256')

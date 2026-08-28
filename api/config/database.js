@@ -1,16 +1,24 @@
-const mysql = require('mysql2/promise');
-require('dotenv').config();
+import mysql from 'mysql2/promise'
+import 'dotenv/config'
+
+const DB_NAME = process.env.DB_NAME || 'traffic_light_system'
+
+// 建库阶段用的连接串（尚未指定 database）
+const baseConnection = {
+    host: process.env.DB_HOST || 'localhost',
+    port: Number(process.env.DB_PORT) || 3306,
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+}
 
 // 创建数据库连接池
 const pool = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 3306,
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || 'password',
-    database: process.env.DB_NAME || 'traffic_light_system',
+    ...baseConnection,
+    database: DB_NAME,
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
+    charset: 'utf8mb4',
 });
 
 // 测试数据库连接
@@ -31,16 +39,11 @@ async function initializeDatabase() {
     try {
         // 创建数据库（如果不存在）
         const createDbSQL = `
-            CREATE DATABASE IF NOT EXISTS ${process.env.DB_NAME || 'traffic_light_system'}
+            CREATE DATABASE IF NOT EXISTS ${DB_NAME}
             CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
         `;
-        
-        const tempPool = mysql.createPool({
-            host: process.env.DB_HOST || 'localhost',
-            port: process.env.DB_PORT || 3306,
-            user: process.env.DB_USER || 'root',
-            password: process.env.DB_PASSWORD || 'password'
-        });
+
+        const tempPool = mysql.createPool(baseConnection);
 
         await tempPool.execute(createDbSQL);
         await tempPool.end();
@@ -230,16 +233,9 @@ async function createTables() {
     }
 }
 
-module.exports = {
-    pool,
-    testConnection,
-    initializeDatabase,
-    createTables
-};
-
 async function ensureSchema() {
     try {
-        const dbName = process.env.DB_NAME || 'traffic_light_system';
+        const dbName = DB_NAME;
         // emergency_vehicles: add direction column if missing
         const [dirCols] = await pool.execute(
             `SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = ? AND table_name = 'emergency_vehicles' AND COLUMN_NAME = 'direction'`,
@@ -393,3 +389,5 @@ async function ensureSchema() {
         return false;
     }
 }
+
+export { pool, testConnection, initializeDatabase, createTables, ensureSchema }
