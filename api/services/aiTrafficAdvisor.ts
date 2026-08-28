@@ -66,6 +66,12 @@ type ProviderConfig = {
   /** 本地推理（llama.cpp）免密钥，云端 provider 缺失密钥时快速失败并给出明确提示 */
   requiresApiKey: boolean
   defaultTimeoutMs: number
+  /**
+   * 透传给 chat template 的额外参数。
+   * 用于关闭 Qwen3 系模型的思考模式（enable_thinking: false），
+   * 需 llama-server 以 --jinja 启动才生效；不支持该参数的模型会忽略它。
+   */
+  chatTemplateKwargs?: Record<string, unknown>
 }
 
 const PROVIDERS: Record<string, ProviderConfig> = {
@@ -93,6 +99,10 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     requiresApiKey: false,
     // GPU 卸载下推理约 1~3s；30s 是为首个请求的模型加载留余量，非算力瓶颈
     defaultTimeoutMs: 30_000,
+    // Qwen3 系默认开启思考模式，会拖慢响应并降低 JSON 依从性；
+    // 本项目只需要一个 JSON，默认关闭。设置 LLAMACPP_ENABLE_THINKING=1 可恢复。
+    chatTemplateKwargs:
+      process.env.LLAMACPP_ENABLE_THINKING === '1' ? undefined : { enable_thinking: false },
   },
 }
 
@@ -176,10 +186,11 @@ function resolveEndpoint(base: string): string {
 const SYSTEM_PROMPT = [
   '你是城市交通信号优化助手。根据各方向车流量与当前信号状态，给出下一周期最优绿灯时长（秒）。',
   '输出规则：',
-  '1. 仅返回一段合法 JSON，禁止任何额外文本、代码块或思考过程。格式：{"green": 数值, "reason": "简要依据"}。',
+  '1. 仅返回一段合法 JSON，禁止任何额外文本、代码块、思考过程、<think>/<thinking>/<reasoning> 等标签。格式：{"green": 数值, "reason": "简要依据"}。',
   '2. green 为建议绿灯秒数（整数）；返回 -1 表示建议保持当前绿灯时长、不调整。',
   '3. 车流量大则适度延长绿灯，车流量小则适度缩短；避免在同相位内频繁剧烈变动。',
-  '4. reason 用一句话说明依据，便于审计与可解释性。'
+  '4. reason 用一句话说明依据，便于审计与可解释性。',
+  '5. 严禁展示分析步骤或思考过程，直接给出结论，便于后端解析。'
 ].join('\n')
 
 function clamp(n: number, min: number, max: number) {
@@ -329,13 +340,18 @@ async function requestAdvice(
 
   let res: Response
   try {
-    res = await postChatCompletions(
-      url,
-      headers,
-      { model: effectiveModel(p), messages, stream: false, temperature: 0.2 },
-      timeoutMs,
-      abortSignal
-    )
+    const payload: Record<string, unknown> = {
+      model: effectiveModel(p),
+      messages,
+      stream: false,
+      temperature: 0.2,
+    }
+    // 本地 provider 透传 chat template 参数（如关闭 Qwen3 思考模式）
+    if (p.chatTemplateKwargs) {
+      payload.chat_template_kwargs = p.chatTemplateKwargs
+    }
+
+    res = await postChatCompletions(url, headers, payload, timeoutMs, abortSignal)
   } catch (e: any) {
     cbOnFailure(Date.now())
     metrics.failures++
@@ -359,8 +375,11 @@ async function requestAdvice(
   console.log(content)
   console.log('==========================================')
 
+  // 剥离各类模型可能输出的思考标签：DeepSeek/Qwen3 的 think、Qwen 的 thinking，
+  // 以及 thought / thoughts / reasoning / reason / analyze / analysis 等变体。
+  // 原实现只剥了 DeepSeek 风格的 think 标签，覆盖不到 Qwen 的 thinking。
   content = content
-    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .replace(/<(think|thinking|thought|thoughts|reasoning|reason|analyze|analysis)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
     .replace(/```json|```/g, '')
     .trim()
   let parsed: { green?: number | string; reason?: string }

@@ -51,7 +51,9 @@ DEEPSEEK_API_KEY=sk-xxx
 DEEPSEEK_MODEL=deepseek-chat
 
 # 本地模式：先启动 llama-server（GPU 卸载，-ngl 为卸载到显存的层数）
-#   llama-server -m model.gguf -c 4096 -ngl 99 --host 127.0.0.1 --port 8080
+#   llama-server.exe -m "D:\llama.cpp\models\Qwen3.5-2B-Q8_0.gguf" \
+#       -c 4096 -ngl 99 --jinja --reasoning-budget 0 \
+#       --host 127.0.0.1 --port 8080
 AI_PROVIDER=llamacpp
 LLAMACPP_BASE_URL=http://127.0.0.1:8080/v1
 LLAMACPP_MODEL=local-gguf
@@ -59,9 +61,32 @@ LLAMACPP_MODEL=local-gguf
 
 > `llama-server` 原生暴露 `/v1/chat/completions`，与云端接口同构，
 > 所以本地模式不需要额外的适配层。
->
-> **推理速度取决于 `-ngl`**：层数全部卸载到 GPU 时，7B Q4 模型通常 1~3 秒出结果。
-> 若只跑 CPU（`-ngl 0`）会慢一个数量级，此时建议调大 `AI_TIMEOUT_MS`。
+
+**`-m` 必须指向 `.gguf` 文件本身，不是目录。** 若启动后 Web UI 显示
+`No models available`，就是没指到模型文件。
+
+**推理速度取决于 `-ngl`**：层数全部卸载到 GPU 时通常 1~3 秒出结果。
+若只跑 CPU（`-ngl 0`）会慢一个数量级，此时建议调大 `AI_TIMEOUT_MS`。
+
+### 关闭本地模型的思考模式
+
+Qwen3 系模型默认输出思考过程，会拖慢响应并降低 JSON 依从性——而本场景只需要一个 JSON。
+本项目默认在**请求层**关闭：向 llama.cpp 透传 `chat_template_kwargs: { enable_thinking: false }`。
+
+服务端侧也可全局关闭（任选其一，效果相同）：
+
+```bash
+--reasoning-budget 0                                  # llama.cpp 推荐方式
+--jinja --chat-template-kwargs '{"enable_thinking":false}'   # 走 chat template
+```
+
+> 注意：请求层的 `enable_thinking` 需要 llama-server 以 `--jinja` 启动才生效；
+> 不支持该参数的模型会忽略它，不会报错。
+
+若确实想保留思考模式，在 `.env` 设 `LLAMACPP_ENABLE_THINKING=1`。
+
+即使思考标签漏了出来也没关系——后端会剥离 `think` / `thinking` / `thought` /
+`reasoning` / `analyze` 等各类标签，并兜底提取 JSON。
 
 ### 双模式互为备份
 
