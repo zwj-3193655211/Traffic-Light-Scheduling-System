@@ -40,7 +40,7 @@ AI 层统一走 **OpenAI 兼容的 Chat Completions 协议**，因此云端 API 
 | --- | --- | --- | --- |
 | DeepSeek | `deepseek` | 需要 | 云端，延迟低（约 1~2s），无需本地算力 |
 | 智谱 GLM | `zhipu` | 需要 | 云端备选 |
-| llama.cpp | `llamacpp` | 不需要 | 本地离线，免密钥；CPU 推理较慢，默认超时放宽至 60s |
+| llama.cpp | `llamacpp` | 不需要 | 本地离线，免密钥；建议 GPU 卸载，推理约 1~3s |
 
 ### 配置示例
 
@@ -50,8 +50,8 @@ AI_PROVIDER=deepseek
 DEEPSEEK_API_KEY=sk-xxx
 DEEPSEEK_MODEL=deepseek-chat
 
-# 本地模式：先启动 llama-server
-#   llama-server -m model.gguf -c 4096 --host 127.0.0.1 --port 8080
+# 本地模式：先启动 llama-server（GPU 卸载，-ngl 为卸载到显存的层数）
+#   llama-server -m model.gguf -c 4096 -ngl 99 --host 127.0.0.1 --port 8080
 AI_PROVIDER=llamacpp
 LLAMACPP_BASE_URL=http://127.0.0.1:8080/v1
 LLAMACPP_MODEL=local-gguf
@@ -59,6 +59,9 @@ LLAMACPP_MODEL=local-gguf
 
 > `llama-server` 原生暴露 `/v1/chat/completions`，与云端接口同构，
 > 所以本地模式不需要额外的适配层。
+>
+> **推理速度取决于 `-ngl`**：层数全部卸载到 GPU 时，7B Q4 模型通常 1~3 秒出结果。
+> 若只跑 CPU（`-ngl 0`）会慢一个数量级，此时建议调大 `AI_TIMEOUT_MS`。
 
 ### 双模式互为备份
 
@@ -81,10 +84,15 @@ DEEPSEEK_API_KEY=sk-xxx
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `AI_ADVICE_INTERVAL_MS` | 10000 | 建议刷新间隔 |
-| `AI_TIMEOUT_MS` | 按 provider | 单次请求超时（云端 12000 / 本地 60000） |
+| `AI_TIMEOUT_MS` | 云端 12000 / 本地 30000 | 单次请求超时（毫秒） |
 | `MAX_GREEN_SECONDS` | 120 | 绿灯上限 |
 | `MIN_YELLOW_SECONDS` / `MAX_YELLOW_SECONDS` | 3 / 5 | 黄灯上下限 |
 | `CYCLE_MAX_SECONDS` | 120 | 整周期上限 |
+
+> **本地模式超时的取值权衡**：本地默认 30s 是为了给「模型还没加载进显存的第一个
+> 请求」留余量，GPU 卸载下的实际推理只有 1~3 秒。不建议再调大——超时越长，
+> `llama-server` 挂掉后等待主 provider 超时、再切到备用 provider 的空窗期越久。
+> 服务常驻预热后，设 `AI_TIMEOUT_MS=15000` 可以显著加快故障切换。
 
 ### 运行机制
 

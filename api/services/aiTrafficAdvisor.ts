@@ -48,11 +48,16 @@ export type Constraints = {
 // 支持的三种模式：
 //   deepseek  —— 云端 API，延迟低、无需本地算力，需要 DEEPSEEK_API_KEY
 //   zhipu     —— 云端备选（智谱 GLM）
-//   llamacpp  —— 本地 llama.cpp 的 llama-server，离线可用、免密钥，但推理较慢且 JSON 依从性较弱
+//   llamacpp  —— 本地 llama.cpp 的 llama-server，离线可用、免密钥，
+//                小模型的 JSON 依从性弱于云端大模型（已靠剥离 <think> 与 JSON 兜底提取缓解）
 //
 // 关键点：llama.cpp 的 llama-server 原生暴露 OpenAI 兼容端点（/v1/chat/completions），
-// 因此本地模式不需要第二套协议实现，只需切换 baseURL / model 即可，
-// 仅在默认超时上对本地推理做差异化（CPU 推理可能达数十秒）。
+// 因此本地模式不需要第二套协议实现，只需切换 baseURL / model 即可。
+//
+// 关于本地模式的超时：GPU 卸载（-ngl）下推理通常 1~3 秒，算力不是瓶颈；
+// 放宽到 30s 是为了给「模型尚未加载进显存的首个请求」留余量，而不是因为算得慢。
+// 也不宜再放宽——超时越长，llama-server 挂掉后切到备用 provider 的等待越久。
+// 若服务常驻已预热，可通过 AI_TIMEOUT_MS 调到 15s 以获得更快的故障切换。
 type ProviderConfig = {
   label: string
   baseURL: string
@@ -86,7 +91,8 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     apiKeyEnv: 'LLAMACPP_API_KEY',
     defaultModel: process.env.LLAMACPP_MODEL ?? 'local-gguf',
     requiresApiKey: false,
-    defaultTimeoutMs: 60_000,
+    // GPU 卸载下推理约 1~3s；30s 是为首个请求的模型加载留余量，非算力瓶颈
+    defaultTimeoutMs: 30_000,
   },
 }
 
